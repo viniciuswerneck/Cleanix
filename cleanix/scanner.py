@@ -90,10 +90,51 @@ def build_categories(home: Path = Path.home()) -> tuple[Category, ...]:
             kind="cache",
             requires_admin=True,
         ),
+        Category(
+            key="memory",
+            label="Memória RAM",
+            roots=("/proc/meminfo",),
+            kind="cache",
+            requires_admin=True,
+        ),
     )
 
 
 CATEGORIES = build_categories()
+
+
+def _allowed_root(root: str, expected: str) -> bool:
+    """True se ``os.path.realpath(root)`` estiver dentro de ``expected``."""
+    try:
+        real = os.path.realpath(root)
+        real_exp = os.path.realpath(expected)
+        return os.path.commonpath([real, real_exp]) == real_exp
+    except (OSError, ValueError):
+        return False
+
+
+def _root_is_allowed(root: str, kind: str = "user") -> bool:
+    """True se a raiz está livre de symlinks escapados.
+
+    Apenas rejeita quando a raiz EM SI for um symlink que aponta para fora
+    do locale esperado. Diretóriosregulares são sempre aceitos (a responsabilidade
+    é do is_within + lstat que já protegem contra caminhos errados).
+    """
+    try:
+        # Apenas verifica se a raiz EM SI é symlink
+        if os.path.islink(root):
+            real = os.path.realpath(root)
+            if kind == "tmp":
+                expected = os.path.realpath("/tmp")
+                return os.path.commonpath([real, expected]) == expected
+            else:
+                # kind == "user": raiz symlink deve estar dentro de HOME
+                home = os.path.realpath(str(Path.home()))
+                return os.path.commonpath([real, home]) == home
+        # Raio regular: sempre aceito (já protegido por is_within + lstat)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def is_within(path: str, roots: Iterable[str]) -> bool:
@@ -218,6 +259,9 @@ def scan_category(cat: Category, now: float | None = None,
     errors = 0
 
     for root in cat.roots:
+        # Pula raízes symlinkadas que escapam do local esperado
+        if not _root_is_allowed(root, cat.kind):
+            continue
         if not os.path.isdir(root):
             continue
 
@@ -293,6 +337,9 @@ def clean_category(cat: Category, now: float | None = None,
     errors = 0
 
     for root in cat.roots:
+        # Pula raízes symlinkadas que escapam do local esperado
+        if not _root_is_allowed(root, cat.kind):
+            continue
         if not os.path.isdir(root):
             continue
 
