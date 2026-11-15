@@ -151,6 +151,14 @@ window {
     font-size: 13px;
     color: #25CE60;
 }
+.warn-text {
+    font-size: 13px;
+    color: #F5A623;
+}
+.bad-text {
+    font-size: 13px;
+    color: #F4510B;
+}
 
 .metric-label {
     font-size: 14px;
@@ -277,6 +285,19 @@ window {
     color: #3295F5;
 }
 
+.link-btn {
+    background-image: none;
+    background: none;
+    border: none;
+    box-shadow: none;
+    color: #3295F5;
+    font-size: 12px;
+    padding: 2px 4px;
+}
+.link-btn:hover {
+    color: #6CB6FF;
+}
+
 /* ---------- System green strip ---------- */
 .sys-strip {
     background-color: rgba(32, 201, 87, 0.12);
@@ -309,4 +330,82 @@ window {
 .status-green {
     color: #25CE60;
     font-size: 16px;
+}
+
+/* ---------- Dialogs ---------- */
+.dialog {
+    background-color: #252330;
+}
+
+.dialog headerbar {
+    background-color: #211F2B;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+    color: #F4F3FA;
+}
+
+.dialog-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #F4F3FA;
+}
+
+.dialog-row {
+    background-color: #2B2938;
+    border-radius: 10px;
+    padding: 9px 12px;
+}
+
+.dialog-total {
+    font-size: 13px;
+    font-weight: 700;
+    color: #E6E5F0;
+}
+
+.empty-text {
+    font-size: 14px;
+    color: #858394;
+    padding: 18px 6px;
+}
+
+.hist-row {
+    background-color: #2B2938;
+    border-radius: 10px;
+    padding: 8px 12px;
+}
+
+.btn-secondary {
+    background-image: none;
+    background-color: #393746;
+    border: none;
+    border-radius: 18px;
+    color: #F4F3FA;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 9px 18px;
+    box-shadow: none;
+}
+.btn-secondary:hover {
+    background-image: none;
+    background-color: #454252;
+}
+
+.btn-danger {
+    background-image: none;
+    background-color: #F4510B;
+    border: none;
+    border-radius: 18px;
+    color: #FFFFFF;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 9px 18px;
+    box-shadow: none;
+}
+.btn-danger:hover {
+    background-image: none;
+    background-color: #FF7A18;
+}
+.btn-danger label {
+    color: #FFFFFF;
 }

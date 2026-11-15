@@ -57,15 +57,19 @@ cleanix/
 
 ## Segurança
 
-O objetivo é limpar apenas arquivos temporários e caches, sempre com
-confirmação do usuário antes de remover qualquer coisa. As rotinas de limpeza
-reais ainda estão em integração — hoje o app é focado na interface.
+A limpeza é limitada a uma allowlist fechada: lixeira, miniaturas, cache dos
+navegadores e arquivos temporários do usuário em `/tmp`. Nada fora dessas
+pastas é tocado, links simbólicos nunca são seguidos, as pastas-raiz nunca são
+removidas e toda limpeza exige confirmação explícita. Em `/tmp`, só saem
+arquivos do próprio usuário com mais de 10 minutos, ignorando o que estiver
+aberto ou em uso.
 
 ## Status
 
-Interface fiel ao mockup e funcional. Próximos passos:
+Interface fiel ao mockup, alimentada por dados reais e com limpeza funcional.
 
-- [ ] Alimentar os gráficos com dados reais do sistema (disco, RAM, CPU)
-- [ ] Ligar os botões às rotinas de limpeza e otimização
+- [x] Dados reais do sistema (disco, RAM, CPU) e gráficos atualizáveis
+- [x] Limpeza real com confirmação, relatório e histórico
+- [ ] Otimização e ajustes do sistema (mostram "Disponível em breve")
 - [ ] Páginas internas de cada seção
 - [ ] Ícones vetoriais próprios no lugar dos emojis

@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
-""" Main window for Cleanix, faithful to the design mockup. """
+"""Janela principal do Cleanix, fiel ao mockup e alimentada por dados reais."""
 
+import os
+import threading
+from datetime import datetime
 from pathlib import Path
 
 import gi
 
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, Pango
+from gi.repository import Gtk, Gdk, GLib, Pango
 
-from . import charts
+from . import charts, dialogs, history, scanner, systeminfo
+
+CATEGORY_COLORS = ('#3295F5', '#20C957', '#F4510B', '#914CF5', '#F5A623')
+HEALTH_TEXTS = {
+    'ok': ('Seu sistema está saudável!', '#25CE60', '✓',
+           'Nenhum problema crítico encontrado.', 'ok-text',
+           'Tudo funcionando bem!'),
+    'warn': ('Atenção: pouco espaço em disco', '#F5A623', '!',
+             'Considere liberar espaço em disco.', 'warn-text',
+             'Pouco espaço livre'),
+    'bad': ('Espaço em disco crítico!', '#F4510B', '×',
+            'Libere espaço o quanto antes.', 'bad-text',
+            'Espaço em disco crítico'),
+}
 
 
 # ---- helpers -------------------------------------------------------------
@@ -71,15 +87,45 @@ def sidebar_icon(name):
     return img
 
 
+def split_size(text):
+    """Separa '2,48 GB' em ('2,48', 'GB')."""
+    parts = text.split(' ', 1)
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return text, ''
+
+
+def plural(count, singular, plural_form):
+    return f'{count} {singular if count == 1 else plural_form}'
+
+
 class CleanixWindow(Gtk.ApplicationWindow):
 
     def __init__(self, application):
         super().__init__(application=application)
         self.set_title('Cleanix')
         self.set_decorated(False)          # custom title bar
+
+        self.categories = scanner.build_categories()
+        self.selected = {c.key for c in self.categories if not c.requires_admin}
+        self.results = {}
+        self.scan_time = None
+        self._busy = False
+        self._syncing = False
+        self._cpu_sample = None
+        self._line_values = []
+        self.cat_rows = {}
+        self.history_rows = []
+        self.metric_labels = {}
+        self.metric_bars = {}
+        self.action_buttons = []
+
         self._setup_css()
         self._build_ui()
         self._fit_to_screen()
+
+        GLib.timeout_add(500, self._start_scan)
+        GLib.timeout_add(2000, self._tick_cpu)
 
     def _fit_to_screen(self):
         """Make sure the window fits the usable screen area (workarea),
@@ -180,13 +226,16 @@ class CleanixWindow(Gtk.ApplicationWindow):
         side.set_size_request(228, -1)
 
         items = [
-            ('Início', 'go-home-symbolic', '', True),
-            ('Cleaner', 'edit-clear-symbolic', '(Limpeza)', False),
-            ('Optimizer', 'utilities-system-monitor-symbolic', '(Otimização)', False),
-            ('Adjustments', 'emblem-system-symbolic', '(Ajustes)', False),
+            ('Início', 'go-home-symbolic', '', True, None),
+            ('Cleaner', 'edit-clear-symbolic', '(Limpeza)', False,
+             lambda *_: self._open_details()),
+            ('Optimizer', 'utilities-system-monitor-symbolic', '(Otimização)',
+             False, lambda *_: self._show_soon()),
+            ('Adjustments', 'emblem-system-symbolic', '(Ajustes)', False,
+             lambda *_: self._show_soon()),
         ]
-        for name, icon, sub, active in items:
-            side.append(self._side_item(name, icon, sub, active))
+        for name, icon, sub, active, on_click in items:
+            side.append(self._side_item(name, icon, sub, active, on_click))
 
         sep = Gtk.Separator()
         sep.add_css_class('side-sep')
@@ -194,11 +243,13 @@ class CleanixWindow(Gtk.ApplicationWindow):
         sep.set_margin_bottom(8)
         side.append(sep)
 
-        for name, icon, sub, active in [
-            ('Histórico', 'document-open-symbolic', '', False),
-            ('Sobre', 'help-about-symbolic', '', False),
+        for name, icon, sub, active, on_click in [
+            ('Histórico', 'document-open-symbolic', '', False,
+             lambda *_: self._open_history()),
+            ('Sobre', 'help-about-symbolic', '', False,
+             lambda *_: self._show_about()),
         ]:
-            side.append(self._side_item(name, icon, sub, active))
+            side.append(self._side_item(name, icon, sub, active, on_click))
 
         expand = Gtk.Box()
         expand.set_vexpand(True)
@@ -213,7 +264,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         side.append(ubuntu)
         return side
 
-    def _side_item(self, name, icon, sub, active):
+    def _side_item(self, name, icon, sub, active, on_click=None):
         btn = Gtk.Button()
         btn.add_css_class('side-item')
         if active:
@@ -230,6 +281,8 @@ class CleanixWindow(Gtk.ApplicationWindow):
         row.append(labels)
 
         btn.set_child(row)
+        if on_click is not None:
+            btn.connect('clicked', on_click)
         return btn
 
     # ---- content ----
@@ -257,34 +310,38 @@ class CleanixWindow(Gtk.ApplicationWindow):
         card = hbox(16)
         card.add_css_class('card')
 
-        # estado geral
         geral = hbox(18)
-        geral.append(charts.make_health_ring(128))
+        self.health_ring = charts.make_health_ring(128)
+        geral.append(self.health_ring)
+
         info = vbox(4)
         info.set_valign(Gtk.Align.CENTER)
-        info.append(txt('Seu sistema está saudável!', 'h1'))
-        info.append(txt('Última verificação: hoje às 10:24', 'sub'))
+        self.health_title = txt('Seu sistema está saudável!', 'h1')
+        info.append(self.health_title)
+        self.last_check_label = txt('Ainda não verificado', 'sub')
+        info.append(self.last_check_label)
+
         ok = hbox(6)
-        ok.append(markup('<span foreground="#25CE60">✓</span>'))
-        ok.append(txt('Nenhum problema crítico encontrado.', 'ok-text'))
+        self.health_icon = markup('<span foreground="#25CE60">✓</span>')
+        ok.append(self.health_icon)
+        self.health_text = txt('Nenhum problema crítico encontrado.',
+                               'ok-text')
+        ok.append(self.health_text)
         info.append(ok)
+
         geral.append(info)
         geral.set_hexpand(True)
         card.append(geral)
 
         card.append(vsep())
-
-        card.append(self._metric('🗄️', 'Disco Livre', '78,4 GB', '(46%)',
-                                 '#20C957', 0.784))
+        card.append(self._metric('disk', '🗄️', 'Disco Livre', '#20C957'))
         card.append(vsep())
-        card.append(self._metric('🟩', 'Memória', '3,1 GB', '(37%)',
-                                 '#3295F5', 0.37))
+        card.append(self._metric('mem', '🟩', 'Memória', '#3295F5'))
         card.append(vsep())
-        card.append(self._metric('🟪', 'CPU', '2%', '(1 núcleo)',
-                                 '#914CF5', 0.02))
+        card.append(self._metric('cpu', '🟪', 'CPU', '#914CF5'))
         return card
 
-    def _metric(self, icon, label, value, pct, color, fraction):
+    def _metric(self, key, icon, label, color):
         box = vbox(4)
         box.set_size_request(120, -1)
 
@@ -293,11 +350,17 @@ class CleanixWindow(Gtk.ApplicationWindow):
         head.append(txt(label, 'metric-label'))
         box.append(head)
 
-        box.append(txt(value, 'metric-value'))
-        box.append(txt(pct, 'metric-pct'))
-        bar = charts.make_bar(fraction, color, width=140, height=14)
+        value = txt('—', 'metric-value')
+        pct = txt('', 'metric-pct')
+        box.append(value)
+        box.append(pct)
+
+        bar = charts.make_bar(0.0, color, width=140, height=14)
         bar.set_margin_top(4)
         box.append(bar)
+
+        self.metric_labels[key] = (value, pct)
+        self.metric_bars[key] = bar
         return box
 
     # ---- Bloco 2: três cartões ----
@@ -314,19 +377,22 @@ class CleanixWindow(Gtk.ApplicationWindow):
         a_info = vbox(2)
         a_info.set_valign(Gtk.Align.CENTER)
         a_info.append(txt('Espaço Recuperável', 'card-title'))
-        a_info.append(txt('2,48 GB', 'big-number'))
-        a_info.append(txt('Arquivos desnecessários encontrados', 'muted'))
+        self.recoverable_label = txt('—', 'big-number')
+        a_info.append(self.recoverable_label)
+        self.recoverable_sub = txt('Calculando...', 'muted')
+        a_info.append(self.recoverable_sub)
         a_top.append(a_info)
         a.append(a_top)
 
-        btn = Gtk.Button()
-        btn.add_css_class('btn-green')
+        self.details_btn = Gtk.Button()
+        self.details_btn.add_css_class('btn-green')
         bcontent = hbox(8)
         bcontent.set_halign(Gtk.Align.CENTER)
         bcontent.append(emoji('🔍'))
         bcontent.append(txt('Ver Detalhes...', halign=Gtk.Align.CENTER))
-        btn.set_child(bcontent)
-        a.append(btn)
+        self.details_btn.set_child(bcontent)
+        self.details_btn.connect('clicked', lambda *_: self._open_details())
+        a.append(self.details_btn)
         row.append(a)
 
         # ---- Cartão B: Uso do disco ----
@@ -340,26 +406,29 @@ class CleanixWindow(Gtk.ApplicationWindow):
         b.append(b_head)
 
         b_mid = hbox(16)
-        donut = charts.make_donut(
-            [(0.46, '#3295F5'), (0.54, '#20C957')],
-            center_markup="<span size='x-large' weight='bold'>46%</span>",
+        self.disk_donut = charts.make_donut(
+            [(0.5, '#3295F5'), (0.5, '#20C957')],
+            center_markup="<span size='x-large' weight='bold'>—</span>",
             size=150, thickness=22)
-        b_mid.append(donut)
+        b_mid.append(self.disk_donut)
 
         legend = vbox(10)
         legend.set_valign(Gtk.Align.CENTER)
         l1 = hbox(8)
         l1.append(markup('<span foreground="#3295F5">●</span>'))
-        l1.append(txt('Usado   78,4 GB', 'legend'))
+        self.disk_used_label = txt('Usado   —', 'legend')
+        l1.append(self.disk_used_label)
         l2 = hbox(8)
         l2.append(markup('<span foreground="#20C957">●</span>'))
-        l2.append(txt('Livre   91,6 GB', 'legend'))
+        self.disk_free_label = txt('Livre   —', 'legend')
+        l2.append(self.disk_free_label)
         legend.append(l1)
         legend.append(l2)
         b_mid.append(legend)
         b.append(b_mid)
 
-        b.append(txt('Total: 170 GB', 'muted'))
+        self.disk_total_label = txt('Total: —', 'muted')
+        b.append(self.disk_total_label)
         row.append(b)
 
         # ---- Cartão C: Sistema ----
@@ -372,12 +441,16 @@ class CleanixWindow(Gtk.ApplicationWindow):
         c_head.append(txt('Sistema', 'card-title'))
         c.append(c_head)
 
-        c.append(charts.make_line_chart(width=180, height=120))
+        self.line_chart = charts.make_line_chart(width=180, height=120)
+        self.line_chart.set_values([])
+        c.append(self.line_chart)
 
         strip = hbox(8)
         strip.add_css_class('sys-strip')
-        strip.append(markup('<span foreground="#25CE60">✓</span>'))
-        strip.append(txt('Tudo funcionando bem!', 'ok-text'))
+        self.system_strip_icon = markup('<span foreground="#25CE60">✓</span>')
+        strip.append(self.system_strip_icon)
+        self.system_strip_text = txt('Tudo funcionando bem!', 'ok-text')
+        strip.append(self.system_strip_text)
         c.append(strip)
         row.append(c)
         return row
@@ -393,13 +466,26 @@ class CleanixWindow(Gtk.ApplicationWindow):
         card.append(title)
 
         row = hbox(14)
-        row.append(self._action('🧹', 'Limpeza Inteligente',
-                                'Remova arquivos temporários, caches e lixo do sistema.',
-                                selected=True))
-        row.append(self._action('🚀', 'Otimização',
-                                'Melhore o desempenho do seu Ubuntu.'))
-        row.append(self._action('🎛️', 'Ajustes',
-                                'Personalize e ajuste seu sistema com segurança.'))
+
+        clean = self._action('🧹', 'Limpeza Inteligente',
+                             'Remova arquivos temporários, caches e lixo do sistema.',
+                             selected=True)
+        clean.connect('clicked', lambda *_: self._open_details())
+        self.action_buttons.append(clean)
+        row.append(clean)
+
+        optimize = self._action('🚀', 'Otimização',
+                                'Melhore o desempenho do seu Ubuntu.')
+        optimize.connect('clicked', lambda *_: self._show_soon())
+        self.action_buttons.append(optimize)
+        row.append(optimize)
+
+        adjust = self._action('🎛️', 'Ajustes',
+                              'Personalize e ajuste seu sistema com segurança.')
+        adjust.connect('clicked', lambda *_: self._show_soon())
+        self.action_buttons.append(adjust)
+        row.append(adjust)
+
         card.append(row)
         return card
 
@@ -434,33 +520,35 @@ class CleanixWindow(Gtk.ApplicationWindow):
         a.append(txt('Categorias de Limpeza', 'card-title'))
 
         inner = hbox(18)
-        listbox = vbox(8)
-        listbox.set_hexpand(True)
+        self.cat_list = vbox(8)
+        self.cat_list.set_hexpand(True)
 
-        cats = [
-            ('🗑️', 'Lixeira do Sistema', '567 MB'),
-            ('📦', 'Cache do APT', '324 MB'),
-            ('🖼️', 'Miniaturas de Imagens', '228 MB'),
-            ('🌐', 'Cache dos Navegadores', '1,02 GB'),
-            ('🗂️', 'Arquivos Temporários', '340 MB'),
-        ]
-        for icon, name, size in cats:
+        for cat in self.categories:
             r = hbox(10)
-            r.append(markup('<span foreground="#3295F5">☑</span>'))
-            r.append(emoji(icon))
-            r.append(txt(name, 'cat-name'))
-            name_lbl = r.get_last_child()
-            name_lbl.set_hexpand(True)
-            r.append(txt(size, 'cat-size'))
-            listbox.append(r)
-        inner.append(listbox)
+            check = Gtk.CheckButton()
+            check.set_active(cat.key in self.selected)
+            check.set_valign(Gtk.Align.CENTER)
+            check.connect('toggled', self._on_cat_toggle, cat.key)
+            r.append(check)
+            r.append(emoji(dialogs.CATEGORY_ICONS.get(cat.key, '📁')))
 
-        inner.append(charts.make_donut(
-            [(0.45, '#3295F5'), (0.25, '#20C957'),
-             (0.15, '#F4510B'), (0.15, '#914CF5')],
-            center_markup="<span size='large' weight='bold'>2,48</span>\n"
-                          "<span size='small'>GB</span>",
-            size=125, thickness=20))
+            name_lbl = txt(cat.label, 'cat-name')
+            name_lbl.set_hexpand(True)
+            r.append(name_lbl)
+
+            size_lbl = txt('—', 'cat-size')
+            r.append(size_lbl)
+
+            self.cat_rows[cat.key] = (check, size_lbl)
+            self.cat_list.append(r)
+
+        inner.append(self.cat_list)
+
+        self.cat_donut = charts.make_donut(
+            [(1.0, '#2B2938')],
+            center_markup="<span size='large' weight='bold'>—</span>",
+            size=125, thickness=20)
+        inner.append(self.cat_donut)
         a.append(inner)
         row.append(a)
 
@@ -475,24 +563,14 @@ class CleanixWindow(Gtk.ApplicationWindow):
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
         head.append(spacer)
-        head.append(markup('<span foreground="#3295F5">Ver Histórico →</span>'))
+        self.history_btn = Gtk.Button(label='Ver Histórico →')
+        self.history_btn.add_css_class('link-btn')
+        self.history_btn.connect('clicked', lambda *_: self._open_history())
+        head.append(self.history_btn)
         b.append(head)
 
-        ops = [
-            ('Limpeza realizada com sucesso', 'Espaço liberado: 1,87 GB', 'Hoje, 10:20'),
-            ('Otimização do sistema', 'Serviços ajustados: 3', 'Ontem, 21:15'),
-            ('Limpeza realizada com sucesso', 'Espaço liberado: 952 MB', '05/11/2026'),
-        ]
-        for title, sub, date in ops:
-            r = hbox(10)
-            r.append(markup('<span foreground="#25CE60">✓</span>'))
-            info = vbox(1)
-            info.set_hexpand(True)
-            info.append(txt(title, 'op-title'))
-            info.append(txt(sub, 'op-sub'))
-            r.append(info)
-            r.append(txt(date, 'op-date'))
-            b.append(r)
+        self.history_list = vbox(8)
+        b.append(self.history_list)
         row.append(b)
         return row
 
@@ -502,7 +580,8 @@ class CleanixWindow(Gtk.ApplicationWindow):
         bar.add_css_class('statusbar')
 
         bar.append(markup('<span foreground="#25CE60">✓</span>'))
-        bar.append(txt('Pronto para ajudar seu sistema!', 'status-text'))
+        self.status_text = txt('Pronto para ajudar seu sistema!', 'status-text')
+        bar.append(self.status_text)
 
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
@@ -514,6 +593,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         cfg_c.append(emoji('⚙️'))
         cfg_c.append(txt('Configurações'))
         cfg.set_child(cfg_c)
+        cfg.connect('clicked', lambda *_: self._show_settings())
         bar.append(cfg)
 
         help_b = Gtk.Button()
@@ -522,5 +602,369 @@ class CleanixWindow(Gtk.ApplicationWindow):
         help_c.append(emoji('❓'))
         help_c.append(txt('Ajuda'))
         help_b.set_child(help_c)
+        help_b.connect('clicked', lambda *_: self._show_help())
         bar.append(help_b)
         return bar
+
+    # ---- varredura ----
+    def _start_scan(self):
+        if self._busy:
+            return False
+        self._set_busy(True)
+        self.status_text.set_text('Escaneando...')
+        threading.Thread(target=self._scan_worker, daemon=True).start()
+        return False
+
+    def _scan_worker(self):
+        try:
+            results = scanner.scan_all(self.categories)
+        except Exception as exc:  # pragma: no cover - falha inesperada
+            GLib.idle_add(self._scan_failed, str(exc))
+            return
+        GLib.idle_add(self._scan_done, results)
+
+    def _scan_failed(self, message):
+        self.status_text.set_text('Não foi possível concluir a varredura')
+        self._set_busy(False)
+        dialogs.show_info(self, 'Falha na varredura',
+                          f'Ocorreu um erro ao analisar o sistema:\n{message}')
+        return False
+
+    def _scan_done(self, results):
+        self.results = results
+        self.scan_time = datetime.now()
+
+        admin = {c.key for c in self.categories if c.requires_admin}
+        available = {key for key, res in results.items()
+                     if res.available and key not in admin}
+        self.selected &= available
+
+        self._refresh_system()
+        self._refresh_recoverable()
+        self._refresh_categories()
+        self._refresh_history()
+
+        self.status_text.set_text('Pronto para ajudar seu sistema!')
+        self._set_busy(False)
+        return False
+
+    def _refresh_system(self):
+        disk = systeminfo.get_disk_info('/')
+        free_pct = 100.0 - disk.percent_used
+        state = systeminfo.health_state(free_pct)
+        self._set_health(state)
+
+        if self.scan_time is not None:
+            self.last_check_label.set_text(
+                f'Última verificação: hoje às {self.scan_time:%H:%M}')
+
+        total = disk.total or 1
+
+        value, pct = self.metric_labels['disk']
+        value.set_text(systeminfo.format_bytes(disk.free))
+        pct.set_text(f'({free_pct:.0f}% livre)')
+        self.metric_bars['disk'].set_fraction(disk.free / total)
+
+        mem = systeminfo.get_mem_info()
+        value, pct = self.metric_labels['mem']
+        value.set_text(systeminfo.format_bytes(mem.used))
+        pct.set_text(f'({mem.percent_used:.0f}%)')
+        self.metric_bars['mem'].set_fraction(mem.percent_used / 100.0)
+
+        cores = os.cpu_count() or 1
+        _, cpu_pct = self.metric_labels['cpu']
+        cpu_pct.set_text(f'({plural(cores, "núcleo", "núcleos")})')
+
+        used_frac = disk.used / total
+        free_frac = disk.free / total
+        self.disk_donut.set_segments(
+            [(used_frac, '#3295F5'), (free_frac, '#20C957')],
+            center_markup=(f"<span size='x-large' weight='bold'>"
+                           f"{disk.percent_used:.0f}%</span>"))
+        self.disk_used_label.set_text(
+            f'Usado   {systeminfo.format_bytes(disk.used)}')
+        self.disk_free_label.set_text(
+            f'Livre   {systeminfo.format_bytes(disk.free)}')
+        self.disk_total_label.set_text(
+            f'Total: {systeminfo.format_bytes(disk.total)}')
+
+    def _set_health(self, state):
+        title, color, glyph, message, cls, strip = HEALTH_TEXTS[state]
+        self.health_ring.set_state(state)
+        self.health_title.set_text(title)
+        self.health_icon.set_markup(f'<span foreground="{color}">{glyph}</span>')
+        self.health_text.set_text(message)
+        for name in ('ok-text', 'warn-text', 'bad-text'):
+            self.health_text.remove_css_class(name)
+        self.health_text.add_css_class(cls)
+
+        self.system_strip_icon.set_markup(
+            f'<span foreground="{color}">{glyph}</span>')
+        self.system_strip_text.set_text(strip)
+        for name in ('ok-text', 'warn-text', 'bad-text'):
+            self.system_strip_text.remove_css_class(name)
+        self.system_strip_text.add_css_class(cls)
+
+    def _refresh_recoverable(self):
+        cats = {c.key: c for c in self.categories}
+        total = 0
+        for key, res in self.results.items():
+            cat = cats.get(key)
+            if cat is not None and res.available and not cat.requires_admin:
+                total += res.bytes
+
+        self.recoverable_label.set_text(systeminfo.format_bytes(total))
+        if total:
+            self.recoverable_sub.set_text('Arquivos desnecessários encontrados')
+        else:
+            self.recoverable_sub.set_text(
+                'Nenhum arquivo desnecessário encontrado')
+        self._refresh_cat_donut(total)
+
+    def _refresh_cat_donut(self, total):
+        if total <= 0:
+            self.cat_donut.set_segments(
+                [(1.0, '#2B2938')],
+                center_markup="<span size='large' weight='bold'>0 B</span>")
+            return
+
+        segments = []
+        for index, cat in enumerate(self.categories):
+            res = self.results.get(cat.key)
+            if res is None or not res.available or res.bytes <= 0:
+                continue
+            color = CATEGORY_COLORS[index % len(CATEGORY_COLORS)]
+            segments.append((res.bytes, color))
+
+        if not segments:
+            segments = [(1.0, '#2B2938')]
+
+        number, unit = split_size(systeminfo.format_bytes(total))
+        center = (f"<span size='large' weight='bold'>{number}</span>\n"
+                  f"<span size='small'>{unit}</span>")
+        self.cat_donut.set_segments(segments, center_markup=center)
+
+    def _refresh_categories(self):
+        cats = {c.key: c for c in self.categories}
+        self._syncing = True
+        for key, (check, size_lbl) in self.cat_rows.items():
+            cat = cats[key]
+            res = self.results.get(key)
+            available = bool(res and res.available) and not cat.requires_admin
+
+            check.set_sensitive(available)
+            check.set_active(key in self.selected and available)
+
+            if cat.requires_admin:
+                size_lbl.set_text('Requer administrador')
+            elif not available:
+                size_lbl.set_text('Indisponível')
+            elif res.files == 0:
+                size_lbl.set_text('Vazio')
+            else:
+                size_lbl.set_text(systeminfo.format_bytes(res.bytes))
+        self._syncing = False
+
+    def _on_cat_toggle(self, check, key):
+        if self._syncing:
+            return
+        if check.get_active():
+            self.selected.add(key)
+        else:
+            self.selected.discard(key)
+
+    def _sync_checks(self):
+        self._syncing = True
+        for key, (check, _size) in self.cat_rows.items():
+            if check.get_sensitive():
+                check.set_active(key in self.selected)
+        self._syncing = False
+
+    # ---- limpeza ----
+    def _start_clean(self, keys):
+        keys = {key for key in keys if key in self.results}
+        if not keys:
+            dialogs.show_info(self, 'Nada selecionado',
+                              'Selecione ao menos uma categoria para limpar.')
+            return
+        if self._busy:
+            return
+
+        total = sum(self.results[key].bytes for key in keys)
+        if total == 0:
+            dialogs.show_info(self, 'Nada para limpar',
+                              'Nenhum arquivo foi encontrado nas categorias '
+                              'selecionadas.')
+            return
+
+        home = Path.home()
+        if not os.access(home, os.W_OK):
+            dialogs.show_info(self, 'Sem permissão',
+                              f'Não é possível gravar em {home}. '
+                              'A limpeza foi cancelada.')
+            return
+
+        message = (f'Serão removidos {systeminfo.format_bytes(total)} em '
+                   f'{plural(len(keys), "categoria", "categorias")}. '
+                   'Esta ação não pode ser desfeita.')
+        if 'browsers' in keys:
+            message += ('\n\nFeche os navegadores para liberar mais espaço; '
+                        'abertos, eles podem recriar o cache.')
+
+        def do_clean():
+            self._run_clean(keys)
+
+        dialogs.confirm(self, 'Confirmar limpeza', message, 'Limpar', do_clean)
+
+    def _run_clean(self, keys):
+        self._set_busy(True)
+        self.status_text.set_text('Limpando...')
+        threading.Thread(target=self._clean_worker, args=(set(keys),),
+                         daemon=True).start()
+
+    def _clean_worker(self, keys):
+        try:
+            report = scanner.clean_selected(keys, self.categories)
+        except Exception as exc:  # pragma: no cover - falha inesperada
+            GLib.idle_add(self._clean_failed, str(exc))
+            return
+
+        entry = history.HistoryEntry(
+            timestamp=datetime.now().isoformat(timespec='seconds'),
+            bytes=report.bytes,
+            files=report.files,
+            categories=tuple(sorted(keys)),
+            errors=report.errors,
+        )
+
+        history_error = None
+        try:
+            history.append_entry(entry)
+        except Exception as exc:  # histórico não pode desfazer a limpeza
+            history_error = str(exc)
+
+        GLib.idle_add(self._clean_done, report, history_error)
+
+    def _clean_failed(self, message):
+        self.status_text.set_text('A limpeza não pôde ser concluída')
+        self._set_busy(False)
+        dialogs.show_info(self, 'Falha na limpeza',
+                          f'Ocorreu um erro durante a limpeza:\n{message}')
+        return False
+
+    def _clean_done(self, report, history_error):
+        message = (f'{systeminfo.format_bytes(report.bytes)} liberados, '
+                   f'{plural(report.files, "arquivo removido", "arquivos removidos")}.')
+        if report.errors == 1:
+            message += '\n1 item não pôde ser removido.'
+        elif report.errors > 1:
+            message += f'\n{report.errors} itens não puderam ser removidos.'
+        if history_error:
+            message += (f'\n\nAviso: não foi possível salvar o histórico '
+                        f'({history_error}).')
+
+        dialogs.show_info(self, 'Limpeza concluída', message)
+        self.status_text.set_text('Pronto para ajudar seu sistema!')
+        self._set_busy(False)
+        self._refresh_history()
+        self._start_scan()
+        return False
+
+    def _set_busy(self, busy):
+        self._busy = busy
+        for btn in self.action_buttons:
+            btn.set_sensitive(not busy)
+        self.details_btn.set_sensitive(not busy)
+        self.history_btn.set_sensitive(not busy)
+
+    # ---- CPU ----
+    def _tick_cpu(self):
+        percent, self._cpu_sample = systeminfo.sample_cpu(self._cpu_sample)
+
+        value, _pct = self.metric_labels['cpu']
+        value.set_text(systeminfo.format_percent(percent))
+        self.metric_bars['cpu'].set_fraction(percent / 100.0)
+
+        self._line_values.append(percent / 100.0)
+        self._line_values = self._line_values[-30:]
+        self.line_chart.set_values(self._line_values)
+        return True
+
+    # ---- diálogos ----
+    def _open_details(self):
+        if self._busy:
+            return
+        dialog = dialogs.DetailsDialog(self, self.categories, self.results,
+                                       self.selected, self._start_clean)
+        dialog.connect('close-request', self._on_details_closed)
+        dialog.present()
+
+    def _on_details_closed(self, _dialog):
+        self._sync_checks()
+        return False
+
+    def _open_history(self):
+        dialog = dialogs.HistoryDialog(self, history.load_history(),
+                                       self._clear_history)
+        dialog.present()
+
+    def _clear_history(self):
+        history.clear_history()
+        self._refresh_history()
+
+    def _refresh_history(self):
+        entries = history.load_history()
+
+        child = self.history_list.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.history_list.remove(child)
+            child = next_child
+
+        self.history_rows = []
+        recent = entries[-3:][::-1]
+        if not recent:
+            self.history_list.append(
+                txt('Nenhuma limpeza registrada ainda', 'empty-text'))
+            return
+
+        for entry in recent:
+            r = hbox(10)
+            r.append(markup('<span foreground="#25CE60">✓</span>'))
+
+            info = vbox(1)
+            info.set_hexpand(True)
+            info.append(txt('Limpeza realizada', 'op-title'))
+            info.append(txt(f'Espaço liberado: '
+                            f'{systeminfo.format_bytes(entry.bytes)} · '
+                            f'{plural(entry.files, "arquivo", "arquivos")}',
+                            'op-sub'))
+            r.append(info)
+
+            r.append(txt(history.format_timestamp(entry.timestamp), 'op-date'))
+            self.history_list.append(r)
+            self.history_rows.append(r)
+
+    def _show_soon(self):
+        dialogs.show_info(self, 'Disponível em breve',
+                          'Esta função chegará em uma próxima versão do '
+                          'Cleanix.')
+
+    def _show_settings(self):
+        dialogs.show_info(self, 'Configurações',
+                          'As preferências do Cleanix estarão disponíveis em '
+                          'uma próxima versão.')
+
+    def _show_help(self):
+        dialogs.show_info(
+            self, 'Ajuda',
+            'Use "Limpeza Inteligente" para revisar as categorias e remover '
+            'arquivos temporários com segurança.\n\n'
+            'Nada fora da sua pasta pessoal e de /tmp é apagado, e as pastas '
+            'raiz nunca são removidas.')
+
+    def _show_about(self):
+        dialogs.show_info(
+            self, 'Sobre o Cleanix',
+            'Cleanix 1.0\nLimpeza segura para Ubuntu, feita com GTK4.\n\n'
+            'Seu sistema sempre em ótima forma.')
