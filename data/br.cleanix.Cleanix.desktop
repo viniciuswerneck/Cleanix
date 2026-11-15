@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Cleanix
+GenericName=Limpeza do Sistema
+Comment=Limpeza segura, otimização e ajustes para o Ubuntu
+Exec=python3 -m cleanix.main
+Path=@PROJECT_DIR@
+Icon=br.cleanix.Cleanix
+Terminal=false
+StartupNotify=true
+Categories=System;
+Keywords=clean;limpeza;limpar;otimizar;cache;disco;

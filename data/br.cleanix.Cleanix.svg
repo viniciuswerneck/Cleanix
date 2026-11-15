@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"
+     viewBox="0 0 128 128" role="img" aria-label="Cleanix">
+  <title>Cleanix</title>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#211F2B"/>
+  <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="27.25"
+        fill="none" stroke="#2B2938" stroke-width="1.5"/>
+
+  <g transform="rotate(32 64 64)">
+    <!-- cabo -->
+    <rect x="59.5" y="14" width="9" height="58" rx="4.5" fill="#F4F3FA"/>
+    <!-- abraçadeira -->
+    <rect x="51" y="70" width="26" height="11" rx="4" fill="#B9B7C7"/>
+    <!-- cerdas -->
+    <path d="M51 81 H77 L84 112 Q64 121 44 112 Z" fill="#25CE60"/>
+    <!-- textura das cerdas -->
+    <path d="M59 83 L57 113 M64 83 V117 M69 83 L71 113"
+          stroke="#1E9E4C" stroke-width="2" stroke-linecap="round"
+          fill="none" opacity="0.75"/>
+  </g>
+
+  <!-- brilhos -->
+  <circle cx="99" cy="34" r="4" fill="#3295F5"/>
+  <circle cx="34" cy="36" r="3" fill="#F4510B"/>
+</svg>
