@@ -163,7 +163,8 @@ def _root_available(cat: Category) -> bool:
 
 def _prune_empty_dirs(root: str, now: float | None = None,
                       open_set: set[str] | None = None,
-                      min_age: int = 0) -> None:
+                      min_age: int = 0,
+                      dir_meta: dict[str, tuple[int, float]] | None = None) -> None:
     if not os.path.isdir(root):
         return
 
@@ -174,13 +175,18 @@ def _prune_empty_dirs(root: str, now: float | None = None,
             continue
 
         if min_age:
-            try:
-                st = os.lstat(dirpath)
-            except OSError:
+            meta = dir_meta.get(dirpath) if dir_meta else None
+            if meta is None:
+                try:
+                    st = os.lstat(dirpath)
+                except OSError:
+                    continue
+                uid, mtime = st.st_uid, st.st_mtime
+            else:
+                uid, mtime = meta
+            if uid != os.getuid():
                 continue
-            if st.st_uid != os.getuid():
-                continue
-            if now is not None and st.st_mtime > now - min_age:
+            if now is not None and mtime > now - min_age:
                 continue
             if open_set is not None and os.path.realpath(dirpath) in open_set:
                 continue
@@ -200,6 +206,13 @@ def scan_category(cat: Category, now: float | None = None,
     if not _root_available(cat):
         return ScanResult(key=cat.key, available=False)
 
+    now = time.time() if now is None else now
+    if cat.kind == "tmp":
+        if open_set is None:
+            if not proc_available():
+                return ScanResult(key=cat.key, available=False)
+            open_set = open_paths()
+
     total_bytes = 0
     files = 0
     errors = 0
@@ -208,8 +221,11 @@ def scan_category(cat: Category, now: float | None = None,
         if not os.path.isdir(root):
             continue
 
-        for dirpath, _dirnames, filenames in os.walk(
+        for dirpath, dirnames, filenames in os.walk(
                 root, followlinks=False):
+            if cat.kind == "tmp" and os.path.realpath(dirpath) in open_set:
+                dirnames[:] = []
+                continue
             for name in filenames:
                 path = os.path.join(dirpath, name)
                 try:
@@ -222,6 +238,13 @@ def scan_category(cat: Category, now: float | None = None,
                     continue
                 if not is_within(path, (root,)):
                     continue
+                if cat.kind == "tmp":
+                    if st.st_uid != os.getuid():
+                        continue
+                    if st.st_mtime > now - cat.min_age:
+                        continue
+                    if os.path.realpath(path) in open_set:
+                        continue
 
                 total_bytes += st.st_size
                 files += 1
@@ -244,6 +267,27 @@ def clean_category(cat: Category, now: float | None = None,
     if not _root_available(cat):
         return ScanResult(key=cat.key, available=False)
 
+    now = time.time() if now is None else now
+    if cat.kind == "tmp":
+        if open_set is None:
+            if not proc_available():
+                return ScanResult(key=cat.key, available=False)
+            open_set = open_paths()
+
+    # A mtime do diretório muda ao apagar seus arquivos; guardamos a original
+    # antes da limpeza para decidir a poda com a idade real.
+    dir_meta: dict[str, tuple[int, float]] = {}
+    if cat.kind == "tmp":
+        for root in cat.roots:
+            if not os.path.isdir(root):
+                continue
+            for dirpath, _dirs, _files in os.walk(root, followlinks=False):
+                try:
+                    st = os.lstat(dirpath)
+                except OSError:
+                    continue
+                dir_meta[dirpath] = (st.st_uid, st.st_mtime)
+
     total_bytes = 0
     files = 0
     errors = 0
@@ -252,8 +296,11 @@ def clean_category(cat: Category, now: float | None = None,
         if not os.path.isdir(root):
             continue
 
-        for dirpath, _dirnames, filenames in os.walk(
+        for dirpath, dirnames, filenames in os.walk(
                 root, followlinks=False):
+            if cat.kind == "tmp" and os.path.realpath(dirpath) in open_set:
+                dirnames[:] = []
+                continue
             for name in filenames:
                 path = os.path.join(dirpath, name)
                 try:
@@ -266,6 +313,13 @@ def clean_category(cat: Category, now: float | None = None,
                     continue
                 if not is_within(path, (root,)):
                     continue
+                if cat.kind == "tmp":
+                    if st.st_uid != os.getuid():
+                        continue
+                    if st.st_mtime > now - cat.min_age:
+                        continue
+                    if os.path.realpath(path) in open_set:
+                        continue
 
                 try:
                     os.unlink(path)
@@ -277,7 +331,7 @@ def clean_category(cat: Category, now: float | None = None,
                 files += 1
 
         _prune_empty_dirs(root, now=now, open_set=open_set,
-                          min_age=cat.min_age)
+                          min_age=cat.min_age, dir_meta=dir_meta)
 
     return ScanResult(key=cat.key, bytes=total_bytes, files=files,
                       errors=errors, available=True)
