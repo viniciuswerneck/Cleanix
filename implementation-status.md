@@ -12,10 +12,12 @@ está implementada com allowlist, confirmação e histórico.
 |---------|--------|
 | `main.py` | Entry point (Gtk.Application) |
 | `cleanixwindow.py` | Janela principal, varredura e limpeza |
-| `dialogs.py` | Avisos, confirmação, detalhes e histórico |
+| `dialogs.py` | Avisos, confirmação, detalhes, ações e configurações |
 | `scanner.py` | Varredura e remoção segura (allowlist) |
 | `systeminfo.py` | Disco, memória, CPU e formatação pt-BR |
 | `history.py` | Histórico persistente em JSON |
+| `autostart.py` | Leitura e ativação de apps de inicialização |
+| `settings.py` | Preferências em `~/.config/cleanix/config.json` |
 | `charts.py` | Widgets Cairo (anel, rosca, linha, barra) |
 | `styles.css` | Tema GTK4 (cores, tipografia, cards, botões) |
 | `tests/` | Testes `unittest` de sistema, scanner e histórico |
@@ -32,7 +34,7 @@ está implementada com allowlist, confirmação e histórico.
 - Bloco 2: Espaço Recuperável real, rosca de uso do disco e gráfico de linha
   com amostras de CPU.
 - Bloco 3: Limpeza Inteligente (abre os detalhes), Otimização e Ajustes
-  ("Disponível em breve").
+  (abrem seus diálogos).
 - Bloco 4: Categorias de Limpeza com tamanhos reais e checkboxes interativos;
   Últimas Ações com as três limpezas mais recentes.
 - Barra inferior de status com Configurações e Ajuda.
@@ -45,7 +47,17 @@ está implementada com allowlist, confirmação e histórico.
 - **Limpeza:** confirmação com total selecionado, execução em thread e
   relatório final. Navegadores abertos geram aviso, mas não bloqueiam.
 - **Histórico:** até 200 entradas, exibidas em diálogo e no cartão "Últimas
-  Ações".
+  Ações". Pode ser desligado em Configurações.
+- **Otimizador:** limpeza do APT (`apt-get autoremove` + `clean`), journal
+  vacuum de 7 dias, `fstrim -av` e gerenciador de Startup Apps. As ações
+  administrativas rodam por `pkexec /usr/bin/bash -c`, com confirmação antes.
+- **Startup Apps:** lista `/etc/xdg/autostart` e `~/.config/autostart` e
+  ativa/desativa por interruptor, sem root (override `Hidden=true`).
+- **Ajustes:** animações do GNOME e limpeza automática de lixeira/temporários,
+  aplicados por `gsettings` como o próprio usuário.
+- **Configurações:** "confirmar antes de limpar" e "guardar histórico",
+  salvos em `~/.config/cleanix/config.json`.
+- **Log:** tudo em `~/.local/state/cleanix/cleanix.log`.
 - **Segurança:** allowlist fechada, `realpath`/`commonpath`, sem seguir links
   simbólicos, raízes preservadas, `/tmp` com idade mínima de 10 minutos e
   exclusão de arquivos abertos.
@@ -84,7 +96,13 @@ python3 -m unittest discover -s tests -v
 
 ## Pendências
 
-- [ ] Otimização do sistema (governador de CPU, swappiness, TRIM)
-- [ ] Ajustes do sistema com privilégios administrativos
-- [ ] Páginas internas de cada seção ao clicar no menu
+- [ ] swappiness e governador de CPU (exigem root e mexem em `sysctl`/`cpufreq`)
+- [ ] Incluir o cache do APT na limpeza normal (hoje só pelo Otimizador)
+- [ ] Destacar no menu lateral a seção em uso (hoje "Início" fica fixo)
 - [ ] Substituir emojis por ícones vetoriais próprios (opcional, fidelidade)
+
+## Instalação
+
+```bash
+./install.sh   # cria atalho e ícone em ~/.local/share, sem root
+```

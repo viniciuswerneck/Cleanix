@@ -26,7 +26,12 @@ do sistema.
 - Histórico persistente das limpezas em
   `~/.local/share/cleanix/history.json` (últimas 200 entradas).
 - Cache do APT aparece desabilitado com o texto "Requer administrador".
-- Otimização e Ajustes mostram "Disponível em breve", sem simular ações.
+- **Otimizador** com ações reais: limpeza do APT, journal vacuum, `fstrim` e
+  gerenciador de aplicativos de inicialização.
+- **Ajustes** aplicados via `gsettings` (animações e privacidade).
+- **Configurações** com "confirmar antes de limpar" e "guardar histórico".
+- Ações administrativas usam `pkexec`, que abre a janela de senha do sistema.
+- Log das ações em `~/.local/state/cleanix/cleanix.log`.
 
 ## Requisitos
 
@@ -46,6 +51,16 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 python3-cairo
 ```bash
 python3 -m cleanix.main
 ```
+
+### Instalar no menu de aplicativos
+
+```bash
+./install.sh
+```
+
+O script copia o ícone e o atalho para `~/.local/share` (sem root) e valida o
+arquivo `.desktop`. Depois disso, basta procurar por **Cleanix** no menu do
+Ubuntu.
 
 ## Como rodar os testes
 
@@ -75,14 +90,20 @@ pastas é tocado.
 cleanix/
 ├── cleanix/
 │   ├── __init__.py
-│   ├── main.py            # entry point (Gtk.Application)
+│   ├── main.py            # entry point (Gtk.Application) e log
 │   ├── cleanixwindow.py   # janela principal e integração
-│   ├── dialogs.py         # avisos, confirmação, detalhes e histórico
+│   ├── dialogs.py         # avisos, confirmação, ações e histórico
 │   ├── scanner.py         # varredura e limpeza segura (allowlist)
 │   ├── systeminfo.py      # disco, memória, CPU e formatação pt-BR
 │   ├── history.py         # histórico persistente
+│   ├── autostart.py       # apps de inicialização (ler/ativar/desativar)
+│   ├── settings.py        # preferências em ~/.config/cleanix/config.json
 │   ├── charts.py          # widgets desenhados em Cairo
 │   └── styles.css         # tema GTK4
+├── data/
+│   ├── br.cleanix.Cleanix.desktop  # atalho do menu de aplicativos
+│   └── br.cleanix.Cleanix.svg      # ícone escalável
+├── install.sh             # instala atalho e ícone em ~/.local/share
 ├── tests/                 # testes unittest
 ├── tools/
 │   └── screenshot.py      # captura offscreen reproduzível
@@ -99,6 +120,9 @@ reutilizados.
 
 - [x] Dados reais do sistema (disco, RAM, CPU) e gráficos atualizáveis
 - [x] Limpeza real com confirmação, relatório e histórico
-- [ ] Otimização e ajustes do sistema (mostram "Disponível em breve")
-- [ ] Páginas internas de cada seção
-- [ ] Ícones vetoriais próprios no lugar dos emojis
+- [x] Otimizador com ações reais (APT, journal, fstrim, Startup Apps)
+- [x] Ajustes do sistema via gsettings
+- [x] Página de Configurações com preferências persistentes
+- [x] Atalho no menu de aplicativos com ícone próprio
+- [ ] Ícones vetoriais próprios no lugar dos emojis (opcional)
+- [ ] swappiness e governador de CPU (exigem root)
