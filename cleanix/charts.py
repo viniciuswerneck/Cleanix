@@ -202,7 +202,8 @@ class LineChart(Gtk.DrawingArea):
     def _draw(self, area, cr, w, h):
         pad = 6
         values = self._values
-        if len(values) < 2:
+        real_data = len(values) >= 2
+        if not real_data:
             values = [0.5, 0.5]
 
         cr.set_source_rgba(*hex_rgb('#484555'), 0.55)
@@ -217,13 +218,14 @@ class LineChart(Gtk.DrawingArea):
         xs = [pad + (w - 2 * pad) * i / (count - 1) for i in range(count)]
         ys = [h - pad - value * (h - 2 * pad) for value in values]
 
-        cr.move_to(xs[0], h - pad)
-        for x, y in zip(xs, ys):
-            cr.line_to(x, y)
-        cr.line_to(xs[-1], h - pad)
-        cr.close_path()
-        cr.set_source_rgba(*hex_rgb(self._color), 0.18)
-        cr.fill()
+        if real_data:
+            cr.move_to(xs[0], h - pad)
+            for x, y in zip(xs, ys):
+                cr.line_to(x, y)
+            cr.line_to(xs[-1], h - pad)
+            cr.close_path()
+            cr.set_source_rgba(*hex_rgb(self._color), 0.18)
+            cr.fill()
 
         cr.set_source_rgb(*hex_rgb(self._color))
         cr.set_line_width(2.4)
