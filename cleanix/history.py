@@ -50,7 +50,7 @@ def load_history(path: Path | None = None) -> list[HistoryEntry]:
 
     try:
         raw = path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeError):
         return []
 
     try:
