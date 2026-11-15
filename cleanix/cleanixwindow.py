@@ -11,7 +11,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, Pango
 
-from . import charts, dialogs, history, scanner, systeminfo
+from . import charts, dialogs, history, scanner, settings, systeminfo
 
 CATEGORY_COLORS = ('#3295F5', '#20C957', '#F4510B', '#914CF5', '#F5A623')
 HEALTH_TEXTS = {
@@ -816,7 +816,11 @@ class CleanixWindow(Gtk.ApplicationWindow):
         def do_clean():
             self._run_clean(keys)
 
-        dialogs.confirm(self, 'Confirmar limpeza', message, 'Limpar', do_clean)
+        if settings.load_settings().confirm_before_clean:
+            dialogs.confirm(self, 'Confirmar limpeza', message, 'Limpar',
+                            do_clean)
+        else:
+            do_clean()
 
     def _run_clean(self, keys):
         self._set_busy(True)
@@ -840,10 +844,11 @@ class CleanixWindow(Gtk.ApplicationWindow):
         )
 
         history_error = None
-        try:
-            history.append_entry(entry)
-        except Exception as exc:  # histórico não pode desfazer a limpeza
-            history_error = str(exc)
+        if settings.load_settings().keep_history:
+            try:
+                history.append_entry(entry)
+            except Exception as exc:  # histórico não pode desfazer a limpeza
+                history_error = str(exc)
 
         GLib.idle_add(self._clean_done, report, history_error)
 
@@ -947,11 +952,6 @@ class CleanixWindow(Gtk.ApplicationWindow):
             self.history_list.append(r)
             self.history_rows.append(r)
 
-    def _show_soon(self):
-        dialogs.show_info(self, 'Disponível em breve',
-                          'Esta função chegará em uma próxima versão do '
-                          'Cleanix.')
-
     def _open_optimizer(self):
         dialog = dialogs.OptimizerDialog(self)
         dialog.present()
@@ -961,9 +961,8 @@ class CleanixWindow(Gtk.ApplicationWindow):
         dialog.present()
 
     def _show_settings(self):
-        dialogs.show_info(self, 'Configurações',
-                          'As preferências do Cleanix estarão disponíveis em '
-                          'uma próxima versão.')
+        dialog = dialogs.SettingsDialog(self)
+        dialog.present()
 
     def _show_help(self):
         dialogs.show_info(

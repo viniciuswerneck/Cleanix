@@ -13,7 +13,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import GLib, Gtk, Pango
 
-from . import autostart, history, systeminfo
+from . import autostart, history, settings, systeminfo
 
 log = logging.getLogger(__name__)
 
@@ -570,6 +570,94 @@ class AdjustmentsDialog(_ActionDialog):
     subtitle = ('Estes ajustes valem apenas para o seu usuário e não precisam '
                 'de senha de administrador.')
     actions = ADJUSTMENT_ACTIONS
+
+
+class SettingsDialog(Gtk.Window):
+    """Preferências do Cleanix, salvas assim que mudam."""
+
+    def __init__(self, parent):
+        super().__init__()
+        self.set_title('Configurações')
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(520, -1)
+        self.add_css_class('dialog')
+
+        self._settings = settings.load_settings()
+        self._recording = False
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+
+        root.append(_txt('Configurações', 'dialog-title'))
+        root.append(_txt('As mudanças são salvas automaticamente e valem '
+                         'apenas para o seu usuário.', 'muted', wrap=True))
+
+        self._confirm_switch = Gtk.Switch()
+        self._confirm_switch.set_active(
+            self._settings.confirm_before_clean)
+        self._confirm_switch.set_valign(Gtk.Align.CENTER)
+        self._confirm_switch.connect('notify::active', self._on_toggle)
+        root.append(self._row(
+            'Confirmar antes de limpar',
+            'Mostra um resumo com o espaço a liberar antes de remover '
+            'qualquer arquivo.', self._confirm_switch))
+
+        self._history_switch = Gtk.Switch()
+        self._history_switch.set_active(self._settings.keep_history)
+        self._history_switch.set_valign(Gtk.Align.CENTER)
+        self._history_switch.connect('notify::active', self._on_toggle)
+        root.append(self._row(
+            'Guardar histórico das limpezas',
+            'Registra o que foi removido no cartão "Últimas Ações" e no '
+            'diálogo de histórico.', self._history_switch))
+
+        self.status = _txt('', 'muted', wrap=True)
+        root.append(self.status)
+
+        separator = Gtk.Separator()
+        separator.set_margin_top(4)
+        separator.set_margin_bottom(4)
+        root.append(separator)
+
+        close = Gtk.Button(label='Fechar')
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        root.append(close)
+
+        self.set_child(root)
+
+    def _row(self, title, description, switch):
+        row = _hbox(12)
+        row.add_css_class('dialog-row')
+
+        info = _vbox(1)
+        info.set_hexpand(True)
+        info.append(_txt(title, 'cat-name'))
+        info.append(_txt(description, 'muted', wrap=True))
+        row.append(info)
+        row.append(switch)
+        return row
+
+    def _on_toggle(self, _switch, _pspec):
+        if self._recording:
+            return
+        self._settings = settings.Settings(
+            confirm_before_clean=self._confirm_switch.get_active(),
+            keep_history=self._history_switch.get_active(),
+        )
+        try:
+            settings.save_settings(self._settings)
+        except OSError as exc:
+            log.exception('Falha ao salvar as configurações')
+            show_info(self, 'Não foi possível salvar',
+                      f'Detalhe: {exc}')
+            self.status.set_text('As preferências não foram salvas.')
+            return
+        self.status.set_text('Preferências salvas.')
 
 
 class HistoryDialog(Gtk.Window):
