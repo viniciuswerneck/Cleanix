@@ -230,9 +230,9 @@ class CleanixWindow(Gtk.ApplicationWindow):
             ('Cleaner', 'edit-clear-symbolic', '(Limpeza)', False,
              lambda *_: self._open_details()),
             ('Optimizer', 'utilities-system-monitor-symbolic', '(Otimização)',
-             False, lambda *_: self._show_soon()),
+             False, lambda *_: self._open_optimizer()),
             ('Adjustments', 'emblem-system-symbolic', '(Ajustes)', False,
-             lambda *_: self._show_soon()),
+             lambda *_: self._open_adjustments()),
         ]
         for name, icon, sub, active, on_click in items:
             side.append(self._side_item(name, icon, sub, active, on_click))
@@ -476,13 +476,13 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
         optimize = self._action('🚀', 'Otimização',
                                 'Melhore o desempenho do seu Ubuntu.')
-        optimize.connect('clicked', lambda *_: self._show_soon())
+        optimize.connect('clicked', lambda *_: self._open_optimizer())
         self.action_buttons.append(optimize)
         row.append(optimize)
 
         adjust = self._action('🎛️', 'Ajustes',
                               'Personalize e ajuste seu sistema com segurança.')
-        adjust.connect('clicked', lambda *_: self._show_soon())
+        adjust.connect('clicked', lambda *_: self._open_adjustments())
         self.action_buttons.append(adjust)
         row.append(adjust)
 
@@ -639,13 +639,15 @@ class CleanixWindow(Gtk.ApplicationWindow):
                      if res.available and key not in admin}
         self.selected &= available
 
-        self._refresh_system()
-        self._refresh_recoverable()
-        self._refresh_categories()
-        self._refresh_history()
+        try:
+            self._refresh_system()
+            self._refresh_recoverable()
+            self._refresh_categories()
+            self._refresh_history()
+        finally:
+            self._set_busy(False)
 
         self.status_text.set_text('Pronto para ajudar seu sistema!')
-        self._set_busy(False)
         return False
 
     def _refresh_system(self):
@@ -949,6 +951,14 @@ class CleanixWindow(Gtk.ApplicationWindow):
         dialogs.show_info(self, 'Disponível em breve',
                           'Esta função chegará em uma próxima versão do '
                           'Cleanix.')
+
+    def _open_optimizer(self):
+        dialog = dialogs.OptimizerDialog(self)
+        dialog.present()
+
+    def _open_adjustments(self):
+        dialog = dialogs.AdjustmentsDialog(self)
+        dialog.present()
 
     def _show_settings(self):
         dialogs.show_info(self, 'Configurações',

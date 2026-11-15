@@ -1,12 +1,26 @@
 #!/usr/bin/env python3
 """Diálogos do Cleanix: avisos, confirmação, detalhes e histórico."""
 
+import logging
+import os
+import subprocess
+import threading
+from collections import namedtuple
+
 import gi
 
 gi.require_version('Gtk', '4.0')
 from gi.repository import GLib, Gtk, Pango
 
 from . import history, systeminfo
+
+log = logging.getLogger(__name__)
+
+# PATH usado quando o comando roda via pkexec (root não herda o ambiente).
+SYSTEM_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+COMMAND_TIMEOUT = 600  # segundos
+
+Result = namedtuple('Result', 'ok output error')
 
 CATEGORY_ICONS = {
     'trash': '🗑️',
@@ -77,6 +91,78 @@ def confirm(parent, title, message, confirm_label, on_confirm):
             on_confirm()
 
     dialog.choose(parent, None, on_choice)
+
+
+def _friendly_error(text):
+    """Traduz os erros mais comuns do pkexec para uma linguagem simples."""
+    if not text:
+        return ''
+    if 'Not authorized' in text or 'dismissed' in text.lower():
+        return ('A senha de administrador não foi informada.\n'
+                'Nada foi alterado no sistema.')
+    if 'No such file or directory' in text and 'bash' in text:
+        return 'Não foi possível iniciar o shell do sistema.'
+    return text
+
+
+def execute_command(command, as_root=False, timeout=COMMAND_TIMEOUT):
+    """Executa ``command`` num shell e devolve um ``Result``.
+
+    Roda sempre em uma thread separada (quem chama cuida disso), nunca
+    levanta exceção e registra tudo no log do Cleanix.
+
+    ``as_root=True`` usa o ``pkexec``, que abre a janela gráfica de senha do
+    sistema operacional.
+    """
+    if as_root:
+        argv = ['pkexec', '/usr/bin/bash', '-c', command]
+    else:
+        argv = ['/usr/bin/bash', '-c', command]
+
+    env = dict(os.environ)
+    env['PATH'] = SYSTEM_PATH + ':' + env.get('PATH', '')
+
+    log.info('Executando (root=%s): %s', as_root, command)
+    try:
+        proc = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            stdin=subprocess.DEVNULL,
+            env=env,
+        )
+    except FileNotFoundError as exc:
+        log.error('Programa não encontrado ao executar %r: %s', command, exc)
+        return Result(False, '', f'Programa não encontrado: {exc}')
+    except subprocess.TimeoutExpired:
+        log.error('Tempo esgotado ao executar %r', command)
+        return Result(False, '',
+                      f'O comando demorou mais de {timeout} segundos '
+                      'e foi cancelado.')
+    except Exception as exc:  # noqa: BLE001 - o erro precisa chegar ao usuário
+        log.exception('Falha inesperada ao executar %r', command)
+        return Result(False, '', f'Falha inesperada: {exc}')
+
+    ok = proc.returncode == 0
+    output = (proc.stdout or '').strip()
+    error = (proc.stderr or '').strip()
+
+    if ok:
+        log.info('Concluído (código %s): %s', proc.returncode, command)
+    else:
+        log.warning('Falhou (código %s): %s -> %s',
+                    proc.returncode, command, error)
+        error = _friendly_error(error) or (
+            f'O comando terminou com código {proc.returncode}.')
+
+    return Result(ok, output, error)
+
+
+def _limit(text, size=1500):
+    if len(text) <= size:
+        return text
+    return text[:size] + '\n…'
 
 
 class DetailsDialog(Gtk.Window):
@@ -193,6 +279,191 @@ class DetailsDialog(Gtk.Window):
             return
         self.close()
         self._on_clean(keys)
+
+
+class _ActionDialog(Gtk.Window):
+    """Base para diálogos que executam comandos do sistema."""
+
+    heading = ''
+    subtitle = ''
+    actions = ()
+
+    def __init__(self, parent):
+        super().__init__()
+        self._buttons = {}
+        self.set_title(self.heading)
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(560, -1)
+        self.add_css_class('dialog')
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+
+        root.append(_txt(self.heading, 'dialog-title'))
+        if self.subtitle:
+            root.append(_txt(self.subtitle, 'muted', wrap=True))
+
+        for action in self.actions:
+            root.append(self._action_row(action))
+
+        separator = Gtk.Separator()
+        separator.set_margin_top(4)
+        separator.set_margin_bottom(4)
+        root.append(separator)
+
+        self.status = _txt('', 'muted', wrap=True)
+        root.append(self.status)
+
+        close = Gtk.Button(label='Fechar')
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        root.append(close)
+
+        self.set_child(root)
+
+    def _action_row(self, action):
+        row = _hbox(10)
+        row.add_css_class('dialog-row')
+
+        button = Gtk.Button(label=action['label'])
+        button.add_css_class('btn-green')
+        button.connect('clicked', self._on_clicked, action)
+        row.append(button)
+        self._buttons[action['label']] = button
+
+        description = _txt(action['description'], 'cat-name')
+        description.set_hexpand(True)
+        description.set_valign(Gtk.Align.CENTER)
+        description.set_wrap(True)
+        row.append(description)
+        return row
+
+    def _on_clicked(self, button, action):
+        log.info('Ação escolhida: %s', action['label'])
+        confirm(self, f'Confirmar: {action["label"]}', action['detail'],
+                'Executar', lambda: self._start(button, action))
+
+    def _start(self, button, action):
+        label = button.get_label()
+        button.set_label('Executando…')
+        button.set_sensitive(False)
+        self.status.set_text(f'{action["label"]}: executando…')
+
+        def work():
+            result = execute_command(action['command'], action['as_root'])
+            GLib.idle_add(self._done, button, label, action, result)
+
+        threading.Thread(target=work, daemon=True, name='cleanix-action').start()
+
+    def _done(self, button, label, action, result):
+        button.set_label(label)
+        button.set_sensitive(True)
+
+        if result.ok:
+            self.status.set_text(f'{action["label"]}: concluído.')
+            body = result.output or 'Nada havia para fazer — o sistema já ' \
+                                    'estava otimizado.'
+            show_info(self, f'{action["label"]}: concluído', _limit(body))
+        else:
+            self.status.set_text(f'{action["label"]}: não concluído.')
+            show_info(self, f'{action["label"]}: não concluído',
+                      _limit(result.error or 'O comando não foi concluído.'))
+        return GLib.SOURCE_REMOVE
+
+
+OPTIMIZER_ACTIONS = (
+    {
+        'label': 'APT Auto-clean',
+        'description': 'Remove pacotes órfãos e limpa o cache do APT',
+        'detail': 'Serão removidos automaticamente os pacotes que não são '
+                  'mais necessários e o cache do APT será limpo.\n'
+                  'Será pedida a senha de administrador.',
+        'command': 'apt-get autoremove -y && apt-get clean',
+        'as_root': True,
+    },
+    {
+        'label': 'Journal Vacuum',
+        'description': 'Reduz os logs do sistema aos últimos 7 dias',
+        'detail': 'Os logs antigos do systemd (journalctl) serão apagados, '
+                  'liberando espaço em disco.\n'
+                  'Será pedida a senha de administrador.',
+        'command': 'journalctl --vacuum-time=7d',
+        'as_root': True,
+    },
+    {
+        'label': 'fstrim',
+        'description': 'Otimiza o descarte de blocos livres no disco',
+        'detail': 'O sistema avisará ao disco quais blocos estão livres, o '
+                  'que ajuda no desempenho do SSD.\n'
+                  'Será pedida a senha de administrador.',
+        'command': 'fstrim -av',
+        'as_root': True,
+    },
+    {
+        'label': 'Startup Apps',
+        'description': 'Abre a pasta dos aplicativos que iniciam com o sistema',
+        'detail': 'A pasta ~/.config/autostart será aberta. Para impedir que '
+                  'um aplicativo inicie com o sistema, apague o arquivo '
+                  '.desktop correspondente.',
+        'command': 'mkdir -p "$HOME/.config/autostart" && '
+                   'xdg-open "$HOME/.config/autostart"',
+        'as_root': False,
+    },
+)
+
+
+ADJUSTMENT_ACTIONS = (
+    {
+        'label': 'Desktop',
+        'description': 'Ativa as animações da interface do GNOME',
+        'detail': 'As animações de janelas e menus do GNOME serão ativadas.',
+        'command': 'gsettings set org.gnome.desktop.interface '
+                   'enable-animations true',
+        'as_root': False,
+    },
+    {
+        'label': 'Privacidade',
+        'description': 'Esvazia lixeira e temporários antigos automaticamente',
+        'detail': 'O GNOME passará a esvaziar a lixeira e a remover arquivos '
+                  'temporários antigos automaticamente.',
+        'command': 'gsettings set org.gnome.desktop.privacy '
+                   'remove-old-trash-files true && '
+                   'gsettings set org.gnome.desktop.privacy '
+                   'remove-old-temp-files true',
+        'as_root': False,
+    },
+    {
+        'label': 'Performance',
+        'description': 'Desativa animações para deixar o sistema mais rápido',
+        'detail': 'As animações de janelas e menus do GNOME serão desativadas, '
+                  'deixando a interface mais leve em computadores modestos.',
+        'command': 'gsettings set org.gnome.desktop.interface '
+                   'enable-animations false',
+        'as_root': False,
+    },
+)
+
+
+class OptimizerDialog(_ActionDialog):
+    """Otimizador do sistema, com ações que realmente são executadas."""
+
+    heading = 'Otimizador do Sistema'
+    subtitle = ('Escolha uma ação. Nada é executado sem a sua confirmação e, '
+                'quando necessário, será pedida a senha de administrador.')
+    actions = OPTIMIZER_ACTIONS
+
+
+class AdjustmentsDialog(_ActionDialog):
+    """Ajustes do sistema, aplicados com gsettings (sem root)."""
+
+    heading = 'Ajustes do Sistema'
+    subtitle = ('Estes ajustes valem apenas para o seu usuário e não precisam '
+                'de senha de administrador.')
+    actions = ADJUSTMENT_ACTIONS
 
 
 class HistoryDialog(Gtk.Window):
