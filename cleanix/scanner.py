@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from .execution import execute_command
+
 BROWSER_CACHE_DIRS = (
     "google-chrome",
     "chromium",
@@ -32,6 +34,7 @@ class Category:
     kind: str
     requires_admin: bool = False
     min_age: int = 0
+    admin_command: str = ''
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,7 @@ class ScanResult:
     files: int = 0
     errors: int = 0
     available: bool = True
+    error: str = ''
 
 
 @dataclass(frozen=True)
@@ -87,20 +91,73 @@ def build_categories(home: Path = Path.home()) -> tuple[Category, ...]:
             key="apt",
             label="Cache do APT",
             roots=("/var/cache/apt/archives",),
-            kind="cache",
+            kind="apt",
             requires_admin=True,
-        ),
-        Category(
-            key="memory",
-            label="Memória RAM",
-            roots=("/proc/meminfo",),
-            kind="cache",
-            requires_admin=True,
+            admin_command="/usr/bin/apt-get clean",
         ),
     )
 
 
 CATEGORIES = build_categories()
+
+
+def _scan_apt(cat: Category) -> ScanResult:
+    """Conta os pacotes ``.deb`` visíveis sem precisar de root."""
+    if not _root_available(cat):
+        return ScanResult(key=cat.key, available=False)
+
+    total_bytes = 0
+    files = 0
+    errors = 0
+
+    for root in cat.roots:
+        if not _root_is_allowed(root, "cache") or not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(
+                root, followlinks=False):
+            for name in filenames:
+                if not name.endswith('.deb'):
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    errors += 1
+                    continue
+                if not stat.S_ISREG(st.st_mode):
+                    continue
+                if not is_within(path, (root,)):
+                    continue
+                total_bytes += st.st_size
+                files += 1
+
+    return ScanResult(key=cat.key, bytes=total_bytes, files=files,
+                      errors=errors, available=True)
+
+
+def _clean_admin_files(cat: Category) -> ScanResult:
+    """Limpa uma categoria do sistema por comando administrativo."""
+    before = scan_category(cat)
+    if not before.available:
+        return before
+
+    result = execute_command(cat.admin_command, as_root=True)
+    after = scan_category(cat)
+    errors = before.errors + after.errors
+
+    if not result.ok:
+        return ScanResult(
+            key=cat.key, available=True, errors=errors + 1,
+            error=result.error or 'O comando administrativo não foi concluído.',
+        )
+
+    return ScanResult(
+        key=cat.key,
+        bytes=max(0, before.bytes - after.bytes),
+        files=max(0, before.files - after.files),
+        errors=errors,
+        available=True,
+    )
 
 
 def _allowed_root(root: str, expected: str) -> bool:
@@ -242,7 +299,9 @@ def _prune_empty_dirs(root: str, now: float | None = None,
 
 def scan_category(cat: Category, now: float | None = None,
                   open_set: set[str] | None = None) -> ScanResult:
-    if cat.requires_admin:
+    if cat.kind == "apt":
+        return _scan_apt(cat)
+    if cat.requires_admin and not cat.admin_command:
         return ScanResult(key=cat.key, available=False)
     if not _root_available(cat):
         return ScanResult(key=cat.key, available=False)
@@ -307,7 +366,9 @@ def scan_all(categories: tuple[Category, ...] = CATEGORIES,
 def clean_category(cat: Category, now: float | None = None,
                    open_set: set[str] | None = None) -> ScanResult:
     if cat.requires_admin:
-        return ScanResult(key=cat.key, available=False)
+        if not cat.admin_command:
+            return ScanResult(key=cat.key, available=False)
+        return _clean_admin_files(cat)
     if not _root_available(cat):
         return ScanResult(key=cat.key, available=False)
 

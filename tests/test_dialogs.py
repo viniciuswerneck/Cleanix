@@ -46,6 +46,13 @@ class ActionListsTest(unittest.TestCase):
         self.assertIsNotNone(startup.get('dialog'))
         self.assertNotIn('command', startup)
 
+    def test_optimizer_has_separate_memory_page(self):
+        actions = dialogs.OptimizerDialog.actions
+        memory = next(a for a in actions if a['label'] == 'Memória RAM')
+        self.assertIsNotNone(memory.get('dialog'))
+        self.assertNotIn('command', memory)
+        self.assertNotIn('as_root', memory)
+
     def test_adjustments_never_need_root(self):
         for action in dialogs.ADJUSTMENT_ACTIONS:
             self.assertFalse(action['as_root'])

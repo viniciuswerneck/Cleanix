@@ -2,28 +2,21 @@
 """Diálogos do Cleanix: avisos, confirmação, detalhes e histórico."""
 
 import logging
-import os
-import subprocess
 import threading
-from collections import namedtuple
 from pathlib import Path
 
 import gi
 
 gi.require_version('Gtk', '4.0')
+gi.require_version('Gdk', '4.0')
 from gi.repository import Gdk, GLib, Gtk, Pango
 
-from . import autostart, history, settings, systeminfo
+from . import autostart, history, memory, settings, systeminfo
+from .execution import Result, execute_command
 
 log = logging.getLogger(__name__)
 
 STARTUP_COLUMNS = 4
-
-# PATH usado quando o comando roda via pkexec (root não herda o ambiente).
-SYSTEM_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-COMMAND_TIMEOUT = 600  # segundos
-
-Result = namedtuple('Result', 'ok output error')
 
 CATEGORY_ICONS = {
     'trash': '🗑️',
@@ -96,72 +89,6 @@ def confirm(parent, title, message, confirm_label, on_confirm):
     dialog.choose(parent, None, on_choice)
 
 
-def _friendly_error(text):
-    """Traduz os erros mais comuns do pkexec para uma linguagem simples."""
-    if not text:
-        return ''
-    if 'Not authorized' in text or 'dismissed' in text.lower():
-        return ('A senha de administrador não foi informada.\n'
-                'Nada foi alterado no sistema.')
-    if 'No such file or directory' in text and 'bash' in text:
-        return 'Não foi possível iniciar o shell do sistema.'
-    return text
-
-
-def execute_command(command, as_root=False, timeout=COMMAND_TIMEOUT):
-    """Executa ``command`` num shell e devolve um ``Result``.
-
-    Roda sempre em uma thread separada (quem chama cuida disso), nunca
-    levanta exceção e registra tudo no log do Cleanix.
-
-    ``as_root=True`` usa o ``pkexec``, que abre a janela gráfica de senha do
-    sistema operacional.
-    """
-    if as_root:
-        argv = ['pkexec', '/usr/bin/bash', '-c', command]
-    else:
-        argv = ['/usr/bin/bash', '-c', command]
-
-    env = dict(os.environ)
-    env['PATH'] = SYSTEM_PATH + ':' + env.get('PATH', '')
-
-    log.info('Executando (root=%s): %s', as_root, command)
-    try:
-        proc = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            stdin=subprocess.DEVNULL,
-            env=env,
-        )
-    except FileNotFoundError as exc:
-        log.error('Programa não encontrado ao executar %r: %s', command, exc)
-        return Result(False, '', f'Programa não encontrado: {exc}')
-    except subprocess.TimeoutExpired:
-        log.error('Tempo esgotado ao executar %r', command)
-        return Result(False, '',
-                      f'O comando demorou mais de {timeout} segundos '
-                      'e foi cancelado.')
-    except Exception as exc:  # noqa: BLE001 - o erro precisa chegar ao usuário
-        log.exception('Falha inesperada ao executar %r', command)
-        return Result(False, '', f'Falha inesperada: {exc}')
-
-    ok = proc.returncode == 0
-    output = (proc.stdout or '').strip()
-    error = (proc.stderr or '').strip()
-
-    if ok:
-        log.info('Concluído (código %s): %s', proc.returncode, command)
-    else:
-        log.warning('Falhou (código %s): %s -> %s',
-                    proc.returncode, command, error)
-        error = _friendly_error(error) or (
-            f'O comando terminou com código {proc.returncode}.')
-
-    return Result(ok, output, error)
-
-
 def _limit(text, size=1500):
     if len(text) <= size:
         return text
@@ -228,7 +155,7 @@ class DetailsDialog(Gtk.Window):
 
     def _row(self, cat):
         result = self._results.get(cat.key)
-        available = bool(result and result.available) and not cat.requires_admin
+        available = bool(result and result.available)
 
         row = _hbox(10)
         row.add_css_class('dialog-row')
@@ -237,6 +164,8 @@ class DetailsDialog(Gtk.Window):
         check.set_active(cat.key in self._selected and available)
         check.set_sensitive(available)
         check.set_valign(Gtk.Align.CENTER)
+        if cat.requires_admin:
+            check.set_tooltip_text('Precisa da senha de administrador')
         check.connect('toggled', self._on_toggle, cat.key)
         row.append(check)
         self._checks[cat.key] = check
@@ -248,15 +177,15 @@ class DetailsDialog(Gtk.Window):
         name.set_valign(Gtk.Align.CENTER)
         row.append(name)
 
-        if cat.requires_admin:
-            row.append(_txt('Requer administrador', 'muted'))
-        elif not available:
+        if not available:
             row.append(_txt('Indisponível', 'muted'))
-        elif result.files == 0:
+        elif result.files == 0 and result.bytes == 0:
             row.append(_txt('Vazio', 'muted'))
         else:
             row.append(_txt(systeminfo.format_bytes(result.bytes), 'cat-size'))
-            row.append(_txt(_plural(result.files, 'arquivo', 'arquivos'), 'muted'))
+            if result.files:
+                row.append(_txt(_plural(result.files, 'arquivo', 'arquivos'),
+                                'muted'))
 
         return row
 
@@ -603,6 +532,116 @@ class StartupAppsDialog(Gtk.Window):
         self.status.set_text(f'{entry.name}: {estado}.')
 
 
+class MemoryDialog(Gtk.Window):
+    """Libera o cache de arquivos da memória RAM, fora da limpeza."""
+
+    def __init__(self, parent):
+        super().__init__()
+        self.set_title('Memória RAM')
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(520, -1)
+        self.add_css_class('dialog')
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+
+        heading = _hbox(8)
+        heading.append(_icon('🧠'))
+        heading.append(_txt('Memória RAM', 'dialog-title'))
+        root.append(heading)
+
+        root.append(_txt(
+            'O sistema guarda arquivos lidos do disco na memória para '
+            'abrir mais rápido. Liberar esse cache devolve a memória, mas '
+            'o computador pode ficar um pouco mais lento até reler os '
+            'arquivos do disco.', 'muted', wrap=True))
+
+        self._cache_label = _txt('Cache em uso: —', 'cat-name')
+        root.append(self._cache_label)
+
+        self._free_label = _txt('', 'muted', wrap=True)
+        root.append(self._free_label)
+
+        self.status = _txt('', 'muted', wrap=True)
+        root.append(self.status)
+
+        separator = Gtk.Separator()
+        separator.set_margin_top(4)
+        separator.set_margin_bottom(4)
+        root.append(separator)
+
+        footer = _hbox(10)
+        close = Gtk.Button(label='Fechar')
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        footer.append(close)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        footer.append(spacer)
+
+        self._release = Gtk.Button(label='Liberar memória')
+        self._release.add_css_class('btn-green')
+        self._release.connect('clicked', self._on_release)
+        footer.append(self._release)
+
+        root.append(footer)
+        self.set_child(root)
+        self._refresh()
+
+    def _refresh(self):
+        values = memory.read_meminfo()
+        if not values:
+            self._cache_label.set_text('Cache em uso: indisponível')
+            self._free_label.set_text('')
+            self._release.set_sensitive(False)
+            return
+
+        cache = memory.reclaimable_memory(values)
+        self._cache_label.set_text(
+            f'Cache em uso: {systeminfo.format_bytes(cache)}')
+        self._free_label.set_text(
+            'Este é o máximo que pode ser liberado agora.')
+        self._release.set_sensitive(True)
+
+    def _on_release(self, _button):
+        detail = ('O cache de arquivos guardado na memória será descartado. '
+                  'O sistema pode ficar um pouco mais lento até reler os '
+                  'arquivos do disco.\n\n'
+                  'Será pedida a senha de administrador.')
+        confirm(self, 'Confirmar liberação de memória', detail, 'Liberar',
+                self._start)
+
+    def _start(self):
+        self._release.set_label('Liberando…')
+        self._release.set_sensitive(False)
+        self.status.set_text('Liberando memória…')
+        threading.Thread(target=self._work, daemon=True,
+                         name='cleanix-memory').start()
+
+    def _work(self):
+        result = memory.release_memory()
+        GLib.idle_add(self._done, result)
+
+    def _done(self, result):
+        self._release.set_label('Liberar memória')
+        self._release.set_sensitive(True)
+
+        if result.ok:
+            self.status.set_text('Memória liberada.')
+            show_info(self, 'Memória RAM', result.output)
+            self._refresh()
+        else:
+            self.status.set_text('Não foi possível liberar a memória.')
+            show_info(self, 'Memória RAM',
+                      result.error or 'A liberação não foi concluída.')
+        return GLib.SOURCE_REMOVE
+
+
 class OptimizerDialog(_ActionDialog):
     """Otimizador do sistema, com ações que realmente são executadas."""
 
@@ -610,6 +649,11 @@ class OptimizerDialog(_ActionDialog):
     subtitle = ('Escolha uma ação. Nada é executado sem a sua confirmação e, '
                 'quando necessário, será pedida a senha de administrador.')
     actions = OPTIMIZER_ACTIONS + (
+        {
+            'label': 'Memória RAM',
+            'description': 'Libera o cache de arquivos guardado na memória',
+            'dialog': lambda parent: MemoryDialog(parent).present(),
+        },
         {
             'label': 'Startup Apps',
             'description': 'Veja e desative o que inicia junto com o sistema',

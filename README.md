@@ -14,20 +14,21 @@ do sistema.
 - Dados reais de disco, memória e CPU, atualizados em segundo plano.
 - Anel de saúde baseado no espaço livre em disco (verde, amarelo ou vermelho).
 - Rosca de uso do disco e gráfico de linha com as últimas amostras de CPU.
-- Varredura segura de quatro categorias do usuário:
+- Varredura segura de cinco categorias:
   - Lixeira do sistema;
   - miniaturas de imagens;
   - cache dos navegadores (Chrome, Chromium, Firefox, Brave, Edge e Vivaldi);
-  - arquivos temporários do usuário em `/tmp`.
+  - arquivos temporários do usuário em `/tmp`;
+  - cache de pacotes do APT (com senha de administrador na hora de limpar).
 - Diálogo de detalhes com tamanho e número de arquivos por categoria.
 - Confirmação explícita antes de remover, com aviso quando há navegadores
   selecionados.
 - Relatório ao final da limpeza (bytes liberados, arquivos removidos e erros).
 - Histórico persistente das limpezas em
   `~/.local/share/cleanix/history.json` (últimas 200 entradas).
-- Cache do APT aparece desabilitado com o texto "Requer administrador".
-- **Otimizador** com ações reais: limpeza do APT, journal vacuum, `fstrim` e
-  gerenciador de aplicativos de inicialização.
+- **Otimizador** com ações reais: limpeza do APT, journal vacuum, `fstrim`,
+  liberação do cache da memória RAM em um diálogo próprio e gerenciador de
+  aplicativos de inicialização.
 - **Ajustes** aplicados via `gsettings` (animações e privacidade).
 - **Configurações** com "confirmar antes de limpar" e "guardar histórico".
 - Ações administrativas usam `pkexec`, que abre a janela de senha do sistema.
@@ -70,9 +71,10 @@ python3 -m unittest discover -s tests -v
 
 ## Segurança
 
-A limpeza é limitada a uma allowlist fechada: lixeira, miniaturas, cache dos
-navegadores e arquivos temporários do usuário em `/tmp`. Nada fora dessas
-pastas é tocado.
+A limpeza do usuário é limitada a uma allowlist fechada: lixeira, miniaturas,
+cache dos navegadores e arquivos temporários em `/tmp`. O cache do APT é limpo
+pelo comando oficial `apt-get clean`, executado via `pkexec` depois da
+confirmação e da senha de administrador.
 
 - Links simbólicos nunca são seguidos e cada caminho é revalidado antes da
   remoção.
@@ -93,7 +95,9 @@ cleanix/
 │   ├── main.py            # entry point (Gtk.Application) e log
 │   ├── cleanixwindow.py   # janela principal e integração
 │   ├── dialogs.py         # avisos, confirmação, ações e histórico
-│   ├── scanner.py         # varredura e limpeza segura (allowlist)
+│   ├── scanner.py         # varredura e limpeza segura (allowlist + APT)
+│   ├── execution.py       # comandos locais e via pkexec
+│   ├── memory.py          # cache da RAM (/proc/meminfo + drop_caches)
 │   ├── systeminfo.py      # disco, memória, CPU e formatação pt-BR
 │   ├── history.py         # histórico persistente
 │   ├── autostart.py       # apps de inicialização (ler/ativar/desativar)
@@ -120,7 +124,8 @@ reutilizados.
 
 - [x] Dados reais do sistema (disco, RAM, CPU) e gráficos atualizáveis
 - [x] Limpeza real com confirmação, relatório e histórico
-- [x] Otimizador com ações reais (APT, journal, fstrim, Startup Apps)
+- [x] Cache do APT marcável no Cleaner, com senha na hora de limpar
+- [x] Otimizador com ações reais (APT, journal, fstrim, RAM, Startup Apps)
 - [x] Ajustes do sistema via gsettings
 - [x] Página de Configurações com preferências persistentes
 - [x] Atalho no menu de aplicativos com ícone próprio

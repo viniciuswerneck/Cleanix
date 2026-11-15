@@ -60,14 +60,70 @@ class CleanCacheTest(unittest.TestCase):
             self.assertEqual(os.listdir(d), [])
 
 
-class RequiresAdminTest(unittest.TestCase):
-    def test_apt_is_unavailable_and_not_scanned(self):
-        cat = scanner.Category("apt", "Cache do APT",
-                               ("/var/cache/apt/archives",), "cache",
-                               requires_admin=True)
-        r = scanner.scan_category(cat)
-        self.assertFalse(r.available)
-        self.assertEqual((r.bytes, r.files), (0, 0))
+class CleanerCategoriesTest(unittest.TestCase):
+    def test_memory_is_not_a_cleaner_category(self):
+        keys = {cat.key for cat in scanner.CATEGORIES}
+        self.assertNotIn("memory", keys)
+
+    def test_apt_is_a_selectable_cleaner_category(self):
+        apt = next(cat for cat in scanner.CATEGORIES if cat.key == "apt")
+        self.assertTrue(apt.requires_admin)
+        self.assertTrue(apt.admin_command)
+        self.assertEqual(apt.kind, "apt")
+
+
+class AdminCategoriesTest(unittest.TestCase):
+    @staticmethod
+    def _apt(root):
+        return scanner.Category(
+            "apt", "Cache do APT", (str(root),), "apt",
+            requires_admin=True,
+            admin_command="/usr/bin/apt-get clean",
+        )
+
+    def test_apt_scan_counts_only_package_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(os.path.join(d, "pacote.deb")).write_bytes(b"x" * 10)
+            Path(os.path.join(d, "lock")).write_bytes(b"")
+            os.makedirs(os.path.join(d, "partial"))
+            Path(os.path.join(d, "partial", "outro.deb")).write_bytes(b"y" * 5)
+
+            r = scanner.scan_category(self._apt(d))
+
+        self.assertTrue(r.available)
+        self.assertEqual((r.files, r.bytes), (2, 15))
+
+    def test_apt_clean_runs_admin_command_and_reports_freed(self):
+        with tempfile.TemporaryDirectory() as d:
+            package = Path(os.path.join(d, "pacote.deb"))
+            package.write_bytes(b"x" * 10)
+            cat = self._apt(d)
+
+            def fake(command, as_root=False, timeout=None):
+                package.unlink()
+                return mock.Mock(ok=True, error="")
+
+            with mock.patch.object(scanner, "execute_command",
+                                   side_effect=fake) as run:
+                r = scanner.clean_category(cat)
+
+        run.assert_called_once_with(cat.admin_command, as_root=True)
+        self.assertTrue(r.available)
+        self.assertEqual((r.bytes, r.files, r.errors), (10, 1, 0))
+
+    def test_apt_clean_failure_is_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(os.path.join(d, "pacote.deb")).write_bytes(b"x" * 10)
+            cat = self._apt(d)
+
+            with mock.patch.object(
+                    scanner, "execute_command",
+                    return_value=mock.Mock(ok=False, error="senha cancelada")):
+                r = scanner.clean_category(cat)
+
+        self.assertTrue(r.available)
+        self.assertEqual((r.bytes, r.files, r.errors), (0, 0, 1))
+        self.assertIn("senha", r.error)
 
 
 class TmpRulesTest(unittest.TestCase):

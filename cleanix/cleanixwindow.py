@@ -9,6 +9,7 @@ from pathlib import Path
 import gi
 
 gi.require_version('Gtk', '4.0')
+gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, Pango
 
 from . import charts, dialogs, history, scanner, settings, systeminfo
@@ -528,6 +529,8 @@ class CleanixWindow(Gtk.ApplicationWindow):
             check = Gtk.CheckButton()
             check.set_active(cat.key in self.selected)
             check.set_valign(Gtk.Align.CENTER)
+            if cat.requires_admin:
+                check.set_tooltip_text('Precisa da senha de administrador')
             check.connect('toggled', self._on_cat_toggle, cat.key)
             r.append(check)
             r.append(emoji(dialogs.CATEGORY_ICONS.get(cat.key, '📁')))
@@ -634,9 +637,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         self.results = results
         self.scan_time = datetime.now()
 
-        admin = {c.key for c in self.categories if c.requires_admin}
-        available = {key for key, res in results.items()
-                     if res.available and key not in admin}
+        available = {key for key, res in results.items() if res.available}
         self.selected &= available
 
         try:
@@ -712,7 +713,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         total = 0
         for key, res in self.results.items():
             cat = cats.get(key)
-            if cat is not None and res.available and not cat.requires_admin:
+            if cat is not None and res.available:
                 total += res.bytes
 
         self.recoverable_label.set_text(systeminfo.format_bytes(total))
@@ -752,16 +753,14 @@ class CleanixWindow(Gtk.ApplicationWindow):
         for key, (check, size_lbl) in self.cat_rows.items():
             cat = cats[key]
             res = self.results.get(key)
-            available = bool(res and res.available) and not cat.requires_admin
+            available = bool(res and res.available)
 
             check.set_sensitive(available)
             check.set_active(key in self.selected and available)
 
-            if cat.requires_admin:
-                size_lbl.set_text('Requer administrador')
-            elif not available:
+            if not available:
                 size_lbl.set_text('Indisponível')
-            elif res.files == 0:
+            elif res.files == 0 and res.bytes == 0:
                 size_lbl.set_text('Vazio')
             else:
                 size_lbl.set_text(systeminfo.format_bytes(res.bytes))
@@ -799,8 +798,10 @@ class CleanixWindow(Gtk.ApplicationWindow):
                               'selecionadas.')
             return
 
+        selected_cats = [cat for cat in self.categories if cat.key in keys]
+        needs_home = any(not cat.requires_admin for cat in selected_cats)
         home = Path.home()
-        if not os.access(home, os.W_OK):
+        if needs_home and not os.access(home, os.W_OK):
             dialogs.show_info(self, 'Sem permissão',
                               f'Não é possível gravar em {home}. '
                               'A limpeza foi cancelada.')
@@ -812,6 +813,9 @@ class CleanixWindow(Gtk.ApplicationWindow):
         if 'browsers' in keys:
             message += ('\n\nFeche os navegadores para liberar mais espaço; '
                         'abertos, eles podem recriar o cache.')
+        if any(cat.requires_admin for cat in selected_cats):
+            message += ('\n\nSerá pedida a senha de administrador para '
+                        'limpar o cache do APT.')
 
         def do_clean():
             self._run_clean(keys)
@@ -850,7 +854,9 @@ class CleanixWindow(Gtk.ApplicationWindow):
             except Exception as exc:  # histórico não pode desfazer a limpeza
                 history_error = str(exc)
 
-        GLib.idle_add(self._clean_done, report, history_error)
+        errors = [res.error for res in report.per_category.values()
+                  if res.error]
+        GLib.idle_add(self._clean_done, report, history_error, errors)
 
     def _clean_failed(self, message):
         self.status_text.set_text('A limpeza não pôde ser concluída')
@@ -859,13 +865,15 @@ class CleanixWindow(Gtk.ApplicationWindow):
                           f'Ocorreu um erro durante a limpeza:\n{message}')
         return False
 
-    def _clean_done(self, report, history_error):
+    def _clean_done(self, report, history_error, errors=()):
         message = (f'{systeminfo.format_bytes(report.bytes)} liberados, '
                    f'{plural(report.files, "arquivo removido", "arquivos removidos")}.')
         if report.errors == 1:
             message += '\n1 item não pôde ser removido.'
         elif report.errors > 1:
             message += f'\n{report.errors} itens não puderam ser removidos.'
+        for error in errors:
+            message += f'\n\n{error}'
         if history_error:
             message += (f'\n\nAviso: não foi possível salvar o histórico '
                         f'({history_error}).')
