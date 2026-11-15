@@ -1,7 +1,7 @@
 # Cleanix — Funcionalidades reais (design)
 
 Data: 2026-11-15
-Status: aguardando aprovação
+Status: aprovado e implementado
 
 ## Intenção
 

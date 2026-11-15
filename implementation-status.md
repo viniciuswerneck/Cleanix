@@ -1,51 +1,74 @@
 # Status da Implementação - Cleanix
 
-## Status: FUNCIONAL E FIEL AO MOCKUP ✓
+## Status: FUNCIONAL, SEGURO E FIEL AO MOCKUP ✓
 
-A interface foi reconstruída seguindo o `mocup.png`, com gráficos reais
-desenhados em **Cairo** (não são imagens nem labels de texto).
+A interface segue o `mocup.png`, com gráficos desenhados em **Cairo** (não são
+imagens nem labels) e dados reais do sistema. A limpeza de caches do usuário
+está implementada com allowlist, confirmação e histórico.
 
 ## Arquivos
 
 | Arquivo | Função |
 |---------|--------|
 | `main.py` | Entry point (Gtk.Application) |
-| `cleanixwindow.py` | Layout completo da janela |
-| `charts.py` | Widgets desenhados em Cairo (anel, rosca, linha, barra, lixeira) |
+| `cleanixwindow.py` | Janela principal, varredura e limpeza |
+| `dialogs.py` | Avisos, confirmação, detalhes e histórico |
+| `scanner.py` | Varredura e remoção segura (allowlist) |
+| `systeminfo.py` | Disco, memória, CPU e formatação pt-BR |
+| `history.py` | Histórico persistente em JSON |
+| `charts.py` | Widgets Cairo (anel, rosca, linha, barra) |
 | `styles.css` | Tema GTK4 (cores, tipografia, cards, botões) |
-| `design-plan.md` | Especificação de design |
-| `mocup.png` | Mockup de referência |
+| `tests/` | Testes `unittest` de sistema, scanner e histórico |
+| `tools/screenshot.py` | Captura offscreen para verificação visual |
 
-## O que já está fiel ao mockup
+## Interface
 
 - Barra superior: logo de vassoura, "Cleanix", subtítulo, botões de janela
   (fechar em círculo laranja com X).
-- Menu lateral 228px: Início (destacado em laranja), Cleaner, Optimizer,
-  Adjustments, Histórico, Sobre + rodapé Ubuntu 22.04 LTS.
-- Bloco 1 (Saúde): anel verde com brilho e check, título, e métricas
-  Disco/Memória/CPU com barras verdes/azuis/roxas.
-- Bloco 2: Espaço Recuperável (botão verde "Ver Detalhes..."), Uso do Disco
-  (rosca azul/verde com "46%"), Sistema (gráfico de linha verde com área).
-- Bloco 3: 3 ações (Limpeza Inteligente destacada com borda azul, Otimização,
-  Ajustes) com setas circulares azuis.
-- Bloco 4: Categorias de Limpeza (checkboxes + lista + rosca colorida "2,48 GB")
-  e Últimas Ações (checks verdes + histórico + datas).
-- Barra inferior de status com "Pronto para ajudar seu sistema!" e
-  Configurações/Ajuda.
+- Menu lateral 228px: Início, Cleaner, Optimizer, Adjustments, Histórico,
+  Sobre + rodapé Ubuntu 22.04 LTS.
+- Bloco 1 (Saúde): anel que muda de cor e glifo conforme o espaço livre em
+  disco, e métricas reais de disco, memória e CPU.
+- Bloco 2: Espaço Recuperável real, rosca de uso do disco e gráfico de linha
+  com amostras de CPU.
+- Bloco 3: Limpeza Inteligente (abre os detalhes), Otimização e Ajustes
+  ("Disponível em breve").
+- Bloco 4: Categorias de Limpeza com tamanhos reais e checkboxes interativos;
+  Últimas Ações com as três limpezas mais recentes.
+- Barra inferior de status com Configurações e Ajuda.
+
+## Funcionalidades reais
+
+- **Varredura em segundo plano** ao abrir e após cada limpeza.
+- **Categorias:** lixeira, miniaturas, cache dos navegadores e `/tmp` do
+  usuário. O cache do APT aparece como "Requer administrador".
+- **Limpeza:** confirmação com total selecionado, execução em thread e
+  relatório final. Navegadores abertos geram aviso, mas não bloqueiam.
+- **Histórico:** até 200 entradas, exibidas em diálogo e no cartão "Últimas
+  Ações".
+- **Segurança:** allowlist fechada, `realpath`/`commonpath`, sem seguir links
+  simbólicos, raízes preservadas, `/tmp` com idade mínima de 10 minutos e
+  exclusão de arquivos abertos.
 
 ## Gráficos (Cairo)
 
-- `make_health_ring` – anel verde com glow + check.
-- `make_donut` – rosca com segmentos coloridos e texto central via Overlay.
-- `make_line_chart` – linha com área preenchida e grade.
-- `make_bar` – barras de progresso arredondadas.
-- `make_trash_illustration` – lixeira lilás (disponível, não usada ainda).
+- `HealthRing` – anel com glow e glifo (check, "!" ou "×").
+- `DonutChart` – rosca com segmentos coloridos e texto central via Overlay.
+- `LineChart` – linha com área preenchida e grade; estado vazio sem área.
+- `ProgressBar` – barras de progresso arredondadas.
+- `make_trash_illustration` – lixeira lilás (disponível, não usada).
 
 ## Como executar
 
 ```bash
 cd /home/vinicius/dev/app/cleanix
 python3 -m cleanix.main
+```
+
+## Testes
+
+```bash
+python3 -m unittest discover -s tests -v
 ```
 
 ## Observações
@@ -55,12 +78,13 @@ python3 -m cleanix.main
 - O tamanho ideal é 1536x1040; em telas menores a janela se ajusta à tela e
   é maximizada, ficando abaixo da barra superior do Ubuntu. O conteúdo rola.
 - A fonte Inter é usada se estiver instalada; senão cai para Ubuntu/Cantarell.
-- Ícones de conteúdo são emojis (paleta do sistema); ícones do menu e botões
-  usam ícones simbólicos do tema.
+- Ícones de conteúdo são emojis; ícones do menu e botões usam ícones simbólicos
+  do tema.
+- `ui.py`, `safety.py` e `utils.py` são legado GTK3 não utilizado.
 
-## Pendências (funcionalidade, não aparência)
+## Pendências
 
-- [ ] Ligar botões a ações reais (limpeza, otimização, ajustes)
-- [ ] Alimentar gráficos com dados reais do sistema (disco, RAM, CPU)
+- [ ] Otimização do sistema (governador de CPU, swappiness, TRIM)
+- [ ] Ajustes do sistema com privilégios administrativos
 - [ ] Páginas internas de cada seção ao clicar no menu
 - [ ] Substituir emojis por ícones vetoriais próprios (opcional, fidelidade)
