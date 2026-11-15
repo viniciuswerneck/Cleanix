@@ -99,8 +99,8 @@ Cache do APT (`/var/cache/apt/archives`) aparece na lista como
 
 Regras de varredura:
 
-- `os.walk(..., followlinks=False)`; links simbólicos são contados como item,
-  mas nunca seguidos.
+- `os.walk(..., followlinks=False)`; links simbólicos são ignorados por
+  completo (nunca seguidos, nunca contados, nunca apagados).
 - Somente arquivos regulares entram no tamanho; diretórios vazios não.
 - Erros de permissão são ignorados silenciosamente e contabilizados à parte.
 - O resultado de cada categoria é `{bytes, files, errors}`.
