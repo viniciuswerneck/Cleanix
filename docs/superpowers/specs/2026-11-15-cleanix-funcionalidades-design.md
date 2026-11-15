@@ -103,9 +103,21 @@ Regras de varredura:
   mas nunca seguidos.
 - Somente arquivos regulares entram no tamanho; diretórios vazios não.
 - Erros de permissão são ignorados silenciosamente e contabilizados à parte.
-- Arquivos abertos são detectados lendo `readlink` de `/proc/*/fd` uma única
-  vez por varredura e comparando caminhos reais.
 - O resultado de cada categoria é `{bytes, files, errors}`.
+- **Exclusão de arquivos abertos vale só para Temporários (`/tmp`)**, onde
+  apagar um arquivo em uso pode quebrar um app. Para caches, o arquivo aberto
+  é contado e pode ser apagado: o próprio app recria o cache.
+- Detecção de arquivos abertos: lê `readlink` de `/proc/*/fd` e os `cwd` dos
+  processos uma vez por varredura. Como só apagamos arquivos do próprio
+  usuário, os processos relevantes são os dele, cujos `/proc` são legíveis.
+- **`/tmp` é recursivo**, mas com poda: se um diretório está aberto ou é o
+  `cwd` de algum processo, a subárvore inteira é ignorada. Só entram arquivos
+  regulares do usuário com mais de 10 minutos e não abertos.
+- Diretórios vazios em `/tmp` só são removidos depois do conteúdo, se forem do
+  usuário, tiverem mais de 10 minutos, não estiverem abertos e não forem a
+  raiz. As pastas-raiz das categorias nunca são removidas.
+- Se `/proc` não puder ser lido, a categoria Temporários é desabilitada
+  (modo degradado) e as demais continuam funcionando.
 
 Regras de remoção:
 
@@ -121,23 +133,31 @@ Regras de remoção:
 ### Dados do sistema
 
 - **Disco:** `os.statvfs('/')`; total = `f_blocks`, livre = `f_bavail`,
-  usado = total − `f_bfree`. Percentual usado = (total − livre) / total.
+  usado = total − livre. Uma única base para número e percentual, para que
+  "usado" + "livre" fechem com o total na rosca. Blocos reservados ao root
+  entram como usados.
 - **Memória:** `/proc/meminfo`; usado = `MemTotal − MemAvailable`.
 - **CPU:** duas leituras de `/proc/stat` com 500 ms de intervalo; percentual =
   delta ocupado / delta total. Núcleos via `os.cpu_count()`.
 - **Gráfico de linha:** amostra de CPU a cada 2 s, mantendo as últimas 30
   amostras; o widget é atualizado no lugar.
-- **Saúde:** livre ≥ 20% verde, 10–19% amarelo, < 10% vermelho. O texto e o
-  anel mudam junto. "Última verificação" recebe a hora real da última varredura.
+- **Saúde:** o veredito vem só do espaço livre em disco (RAM e CPU oscilam e
+  ficam como métricas). Livre ≥ 20% verde com check; 10–19% amarelo com "!";
+  < 10% vermelho com "×". Texto, cor e glifo do anel mudam juntos.
+- **Última verificação:** vale a última varredura **desta sessão**; antes da
+  primeira, mostra "Ainda não verificado". Não é persistida.
 
 ### Fluxo de limpeza
 
 1. App abre e faz uma varredura inicial em segundo plano.
 2. Cartão "Espaço Recuperável" mostra o total real encontrado.
-3. "Ver Detalhes..." abre um diálogo modal com uma linha por categoria
-   (nome, tamanho, nº de arquivos, checkbox). Categorias que exigem admin
-   aparecem desabilitadas.
-4. "Limpar agora" abre uma confirmação explícita com o total selecionado.
+3. Os checkboxes da lista "Categorias de Limpeza" são interativos e guardam o
+   estado de seleção na janela; as quatro categorias do usuário começam
+   marcadas. "Ver Detalhes..." abre um diálogo modal com uma linha por
+   categoria (nome, tamanho, nº de arquivos, checkbox) que lê e escreve a
+   mesma seleção. Categorias que exigem admin aparecem desabilitadas.
+4. O botão "Limpar agora" fica **dentro do diálogo de detalhes** e abre uma
+   confirmação explícita com o total selecionado.
 5. A limpeza roda em thread; a barra de status mostra o progresso.
 6. Ao terminar, um diálogo informa bytes liberados, arquivos removidos e
    eventuais erros.
@@ -181,7 +201,8 @@ duas operações concorrentes.
 - `tests/test_history.py`: gravação, leitura, limite de 200 entradas.
 - `tests/test_systeminfo.py`: formatação e leitura de `/proc/meminfo` com
   conteúdo simulado.
-- Verificação visual com capturas offscreen, como já é feito hoje.
+- `tools/screenshot.py`: harness de captura offscreen (o script usado hoje
+  vive fora do repo) para verificação visual reproduzível.
 
 ## Riscos
 
@@ -191,6 +212,26 @@ duas operações concorrentes.
   arquivos abertos e pela idade mínima de 10 minutos.
 - **Corrida entre varredura e limpeza** (arquivo trocado por link): mitigada
   revalidando cada caminho antes de apagar.
+
+## Decisões tomadas na revisão
+
+1. **Onde fica "Limpar agora":** dentro do diálogo de detalhes. A seleção é
+   única, guardada na janela, compartilhada entre a lista principal e o
+   diálogo. As quatro categorias do usuário começam marcadas.
+2. **`/tmp` recursivo com poda:** subárvores de diretórios abertos ou usados
+   como `cwd` são ignoradas por inteiro; diretórios vazios só saem depois,
+   com as mesmas condições de idade/dono.
+3. **Arquivos abertos:** exclusão vale só para Temporários; caches contam e
+   podem ser apagados mesmo com o app aberto.
+4. **`/proc` parcial:** como só apagamos arquivos do próprio usuário, a
+   leitura cobre os processos relevantes. Se `/proc` falhar, Temporários é
+   desabilitado e o resto segue.
+5. **Saúde:** veredito só pelo disco livre; RAM/CPU são métricas. Anel muda
+   cor e glifo (check, "!", "×").
+6. **Captura visual:** entra no repo como `tools/screenshot.py`.
+7. **Última verificação:** só da sessão atual, não persistida.
+8. **Base do disco:** total = `f_blocks`, livre = `f_bavail`, usado =
+   total − livre; a rosca fecha com o total.
 
 ## Decisões deixadas para o construtor
 
