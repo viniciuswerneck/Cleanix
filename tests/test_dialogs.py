@@ -58,5 +58,19 @@ class ActionListsTest(unittest.TestCase):
                 self.assertIn(field, action)
 
 
+class StartupLayoutTest(unittest.TestCase):
+    def test_four_columns(self):
+        self.assertEqual(dialogs.STARTUP_COLUMNS, 4)
+
+    def test_content_limit_fits_common_screen(self):
+        self.assertEqual(dialogs.startup_content_limit(768), 340)
+
+    def test_content_limit_shrinks_on_small_screen(self):
+        self.assertEqual(dialogs.startup_content_limit(560), 240)
+
+    def test_content_limit_never_goes_too_small(self):
+        self.assertEqual(dialogs.startup_content_limit(400), 160)
+
+
 if __name__ == '__main__':
     unittest.main()

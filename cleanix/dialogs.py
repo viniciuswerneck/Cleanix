@@ -11,11 +11,13 @@ from pathlib import Path
 import gi
 
 gi.require_version('Gtk', '4.0')
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 from . import autostart, history, settings, systeminfo
 
 log = logging.getLogger(__name__)
+
+STARTUP_COLUMNS = 4
 
 # PATH usado quando o comando roda via pkexec (root não herda o ambiente).
 SYSTEM_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
@@ -164,6 +166,11 @@ def _limit(text, size=1500):
     if len(text) <= size:
         return text
     return text[:size] + '\n…'
+
+
+def startup_content_limit(screen_height, reserved=320):
+    """Altura máxima da lista de Startup Apps para caber na tela."""
+    return max(160, min(340, screen_height - reserved))
 
 
 class DetailsDialog(Gtk.Window):
@@ -450,7 +457,8 @@ class StartupAppsDialog(Gtk.Window):
         self.set_title('Aplicativos de Inicialização')
         self.set_modal(True)
         self.set_transient_for(parent)
-        self.set_default_size(560, -1)
+        width, _height = self._screen_size()
+        self.set_default_size(min(1020, max(520, width - 80)), -1)
         self.add_css_class('dialog')
 
         root = _vbox(10)
@@ -461,11 +469,25 @@ class StartupAppsDialog(Gtk.Window):
 
         root.append(_txt('Aplicativos de Inicialização', 'dialog-title'))
         root.append(_txt('Desative o que não precisa abrir junto com o '
-                         'sistema. A mudança vale só para o seu usuário e '
-                         'não precisa de senha.', 'muted', wrap=True))
+                         'sistema. A mudança é aplicada na hora, vale só '
+                         'para o seu usuário e não precisa de senha.',
+                         'muted', wrap=True))
 
-        self._list = _vbox(2)
-        root.append(self._list)
+        self._grid = Gtk.Grid()
+        self._grid.set_column_spacing(10)
+        self._grid.set_row_spacing(8)
+        self._grid.set_column_homogeneous(True)
+        self._grid.set_margin_top(2)
+        self._grid.set_margin_bottom(2)
+
+        self._scroller = Gtk.ScrolledWindow()
+        self._scroller.set_policy(Gtk.PolicyType.NEVER,
+                                  Gtk.PolicyType.AUTOMATIC)
+        self._scroller.set_child(self._grid)
+        self._scroller.set_propagate_natural_height(True)
+        self._scroller.set_max_content_height(self._content_limit())
+        self._scroller.set_vexpand(True)
+        root.append(self._scroller)
 
         self.status = _txt('', 'muted', wrap=True)
         root.append(self.status)
@@ -481,16 +503,42 @@ class StartupAppsDialog(Gtk.Window):
         root.append(close)
 
         self.set_child(root)
+
+        # Esc sempre fecha, mesmo que a lista cresça.
+        keys = Gtk.EventControllerKey()
+        keys.connect('key-pressed', self._on_key)
+        self.add_controller(keys)
+
         self._restoring = False
         self._entries = []
         self._load()
 
+    @staticmethod
+    def _screen_size():
+        display = Gdk.Display.get_default()
+        if display is not None:
+            monitors = display.get_monitors()
+            if monitors.get_n_items():
+                geometry = monitors.get_item(0).get_geometry()
+                return geometry.width, geometry.height
+        return 1280, 800
+
+    def _content_limit(self):
+        _width, height = self._screen_size()
+        return startup_content_limit(height)
+
+    def _on_key(self, _controller, keyval, _keycode, _state):
+        if keyval == Gdk.KEY_Escape:
+            self.close()
+            return True
+        return False
+
     def _clear(self):
         while True:
-            child = self._list.get_first_child()
+            child = self._grid.get_first_child()
             if child is None:
                 break
-            self._list.remove(child)
+            self._grid.remove(child)
 
     def _load(self):
         self._clear()
@@ -503,30 +551,37 @@ class StartupAppsDialog(Gtk.Window):
                       f'Detalhe: {exc}')
 
         if not self._entries:
-            self._list.append(_txt('Nenhum aplicativo de inicialização '
-                                   'encontrado.', 'empty-text'))
+            self._grid.attach(
+                _txt('Nenhum aplicativo de inicialização encontrado.',
+                     'empty-text'),
+                0, 0, STARTUP_COLUMNS, 1)
             return
 
-        for entry in self._entries:
-            self._list.append(self._row(entry))
+        for index, entry in enumerate(self._entries):
+            self._grid.attach(self._cell(entry),
+                              index % STARTUP_COLUMNS,
+                              index // STARTUP_COLUMNS, 1, 1)
 
-    def _row(self, entry):
-        row = _hbox(10)
-        row.add_css_class('dialog-row')
-
-        info = _vbox(1)
-        info.set_hexpand(True)
-        info.append(_txt(entry.name, 'cat-name'))
-        if entry.command:
-            info.append(_txt(entry.command, 'muted'))
-        row.append(info)
+    def _cell(self, entry):
+        cell = _hbox(8)
+        cell.add_css_class('dialog-row')
 
         switch = Gtk.Switch()
         switch.set_active(not entry.hidden)
         switch.set_valign(Gtk.Align.CENTER)
         switch.connect('notify::active', self._on_toggle, entry)
-        row.append(switch)
-        return row
+        cell.append(switch)
+
+        label = _txt(entry.name, 'cat-name', wrap=True)
+        label.set_lines(2)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        label.set_hexpand(True)
+        label.set_valign(Gtk.Align.CENTER)
+        cell.append(label)
+
+        if entry.command:
+            cell.set_tooltip_text(entry.command)
+        return cell
 
     def _on_toggle(self, switch, _pspec, entry):
         if self._restoring:
