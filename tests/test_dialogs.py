@@ -34,9 +34,17 @@ class ExecuteCommandTest(unittest.TestCase):
 
 
 class ActionListsTest(unittest.TestCase):
-    def test_optimizer_has_root_and_user_actions(self):
-        flags = {action['as_root'] for action in dialogs.OPTIMIZER_ACTIONS}
-        self.assertEqual(flags, {True, False})
+    def test_optimizer_commands_need_root(self):
+        for action in dialogs.OPTIMIZER_ACTIONS:
+            self.assertTrue(action['as_root'])
+
+    def test_optimizer_has_startup_apps_page(self):
+        actions = dialogs.OptimizerDialog.actions
+        labels = [action['label'] for action in actions]
+        self.assertIn('Startup Apps', labels)
+        startup = next(a for a in actions if a['label'] == 'Startup Apps')
+        self.assertIsNotNone(startup.get('dialog'))
+        self.assertNotIn('command', startup)
 
     def test_adjustments_never_need_root(self):
         for action in dialogs.ADJUSTMENT_ACTIONS:

@@ -6,13 +6,14 @@ import os
 import subprocess
 import threading
 from collections import namedtuple
+from pathlib import Path
 
 import gi
 
 gi.require_version('Gtk', '4.0')
 from gi.repository import GLib, Gtk, Pango
 
-from . import history, systeminfo
+from . import autostart, history, systeminfo
 
 log = logging.getLogger(__name__)
 
@@ -331,7 +332,10 @@ class _ActionDialog(Gtk.Window):
 
         button = Gtk.Button(label=action['label'])
         button.add_css_class('btn-green')
-        button.connect('clicked', self._on_clicked, action)
+        if action.get('dialog') is not None:
+            button.connect('clicked', lambda *_: action['dialog'](self))
+        else:
+            button.connect('clicked', self._on_clicked, action)
         row.append(button)
         self._buttons[action['label']] = button
 
@@ -403,16 +407,6 @@ OPTIMIZER_ACTIONS = (
         'command': 'fstrim -av',
         'as_root': True,
     },
-    {
-        'label': 'Startup Apps',
-        'description': 'Abre a pasta dos aplicativos que iniciam com o sistema',
-        'detail': 'A pasta ~/.config/autostart será aberta. Para impedir que '
-                  'um aplicativo inicie com o sistema, apague o arquivo '
-                  '.desktop correspondente.',
-        'command': 'mkdir -p "$HOME/.config/autostart" && '
-                   'xdg-open "$HOME/.config/autostart"',
-        'as_root': False,
-    },
 )
 
 
@@ -448,13 +442,125 @@ ADJUSTMENT_ACTIONS = (
 )
 
 
+class StartupAppsDialog(Gtk.Window):
+    """Ativa e desativa os aplicativos que iniciam junto com o sistema."""
+
+    def __init__(self, parent):
+        super().__init__()
+        self.set_title('Aplicativos de Inicialização')
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(560, -1)
+        self.add_css_class('dialog')
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+
+        root.append(_txt('Aplicativos de Inicialização', 'dialog-title'))
+        root.append(_txt('Desative o que não precisa abrir junto com o '
+                         'sistema. A mudança vale só para o seu usuário e '
+                         'não precisa de senha.', 'muted', wrap=True))
+
+        self._list = _vbox(2)
+        root.append(self._list)
+
+        self.status = _txt('', 'muted', wrap=True)
+        root.append(self.status)
+
+        separator = Gtk.Separator()
+        separator.set_margin_top(4)
+        separator.set_margin_bottom(4)
+        root.append(separator)
+
+        close = Gtk.Button(label='Fechar')
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        root.append(close)
+
+        self.set_child(root)
+        self._restoring = False
+        self._entries = []
+        self._load()
+
+    def _clear(self):
+        while True:
+            child = self._list.get_first_child()
+            if child is None:
+                break
+            self._list.remove(child)
+
+    def _load(self):
+        self._clear()
+        try:
+            self._entries = autostart.list_entries(Path.home())
+        except OSError as exc:
+            log.exception('Falha ao listar aplicativos de inicialização')
+            self._entries = []
+            show_info(self, 'Não foi possível ler os aplicativos',
+                      f'Detalhe: {exc}')
+
+        if not self._entries:
+            self._list.append(_txt('Nenhum aplicativo de inicialização '
+                                   'encontrado.', 'empty-text'))
+            return
+
+        for entry in self._entries:
+            self._list.append(self._row(entry))
+
+    def _row(self, entry):
+        row = _hbox(10)
+        row.add_css_class('dialog-row')
+
+        info = _vbox(1)
+        info.set_hexpand(True)
+        info.append(_txt(entry.name, 'cat-name'))
+        if entry.command:
+            info.append(_txt(entry.command, 'muted'))
+        row.append(info)
+
+        switch = Gtk.Switch()
+        switch.set_active(not entry.hidden)
+        switch.set_valign(Gtk.Align.CENTER)
+        switch.connect('notify::active', self._on_toggle, entry)
+        row.append(switch)
+        return row
+
+    def _on_toggle(self, switch, _pspec, entry):
+        if self._restoring:
+            return
+        enabled = switch.get_active()
+        try:
+            autostart.set_enabled(entry, enabled, Path.home())
+        except OSError as exc:
+            log.exception('Falha ao alterar o aplicativo %s', entry.name)
+            show_info(self, 'Não foi possível alterar',
+                      f'{entry.name}: {exc}')
+            self._restoring = True
+            switch.set_active(not enabled)
+            self._restoring = False
+            return
+
+        estado = 'ativado' if enabled else 'desativado'
+        log.info('Startup %s: %s', entry.name, estado)
+        self.status.set_text(f'{entry.name}: {estado}.')
+
+
 class OptimizerDialog(_ActionDialog):
     """Otimizador do sistema, com ações que realmente são executadas."""
 
     heading = 'Otimizador do Sistema'
     subtitle = ('Escolha uma ação. Nada é executado sem a sua confirmação e, '
                 'quando necessário, será pedida a senha de administrador.')
-    actions = OPTIMIZER_ACTIONS
+    actions = OPTIMIZER_ACTIONS + (
+        {
+            'label': 'Startup Apps',
+            'description': 'Veja e desative o que inicia junto com o sistema',
+            'dialog': lambda parent: StartupAppsDialog(parent).present(),
+        },
+    )
 
 
 class AdjustmentsDialog(_ActionDialog):
