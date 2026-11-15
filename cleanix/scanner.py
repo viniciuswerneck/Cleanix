@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+"""Varredura e limpeza segura de lixo do usuário.
+
+Toda remoção é limitada a uma allowlist fechada de raízes. Nada fora de
+``$HOME`` ou ``/tmp`` é tocado, e links simbólicos nunca são seguidos.
+"""
+
+from __future__ import annotations
+
+import os
+import stat
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+BROWSER_CACHE_DIRS = (
+    "google-chrome",
+    "chromium",
+    "mozilla/firefox",
+    "brave-browser",
+    "microsoft-edge",
+    "vivaldi",
+)
+
+
+@dataclass(frozen=True)
+class Category:
+    key: str
+    label: str
+    roots: tuple[str, ...]
+    kind: str
+    requires_admin: bool = False
+    min_age: int = 0
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    key: str
+    bytes: int = 0
+    files: int = 0
+    errors: int = 0
+    available: bool = True
+
+
+@dataclass(frozen=True)
+class CleanReport:
+    bytes: int
+    files: int
+    errors: int
+    per_category: dict[str, ScanResult]
+
+
+def build_categories(home: Path = Path.home()) -> tuple[Category, ...]:
+    home = Path(home)
+    return (
+        Category(
+            key="trash",
+            label="Lixeira do Sistema",
+            roots=(
+                str(home / ".local/share/Trash/files"),
+                str(home / ".local/share/Trash/info"),
+            ),
+            kind="trash",
+        ),
+        Category(
+            key="thumbnails",
+            label="Miniaturas de Imagens",
+            roots=(str(home / ".cache/thumbnails"),),
+            kind="cache",
+        ),
+        Category(
+            key="browsers",
+            label="Cache dos Navegadores",
+            roots=tuple(str(home / ".cache" / name)
+                        for name in BROWSER_CACHE_DIRS),
+            kind="cache",
+        ),
+        Category(
+            key="tmp",
+            label="Arquivos Temporários",
+            roots=("/tmp",),
+            kind="tmp",
+            min_age=600,
+        ),
+        Category(
+            key="apt",
+            label="Cache do APT",
+            roots=("/var/cache/apt/archives",),
+            kind="cache",
+            requires_admin=True,
+        ),
+    )
+
+
+CATEGORIES = build_categories()
+
+
+def is_within(path: str, roots: Iterable[str]) -> bool:
+    """True apenas se ``path`` resolvido estiver dentro de uma raiz."""
+    try:
+        real = os.path.realpath(path)
+    except OSError:
+        return False
+
+    for root in roots:
+        try:
+            real_root = os.path.realpath(root)
+            if os.path.commonpath([real, real_root]) == real_root:
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def proc_available() -> bool:
+    return Path("/proc/self/fd").is_dir()
+
+
+def open_paths() -> set[str]:
+    """Caminhos reais abertos ou usados como cwd por processos."""
+    paths: set[str] = set()
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return paths
+
+    try:
+        entries = list(proc.iterdir())
+    except OSError:
+        return paths
+
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+
+        try:
+            paths.add(os.path.realpath(os.readlink(entry / "cwd")))
+        except OSError:
+            pass
+
+        try:
+            fds = list((entry / "fd").iterdir())
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                paths.add(os.path.realpath(os.readlink(fd)))
+            except OSError:
+                continue
+
+    return paths
+
+
+def _root_available(cat: Category) -> bool:
+    for root in cat.roots:
+        try:
+            if os.path.isdir(root):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _prune_empty_dirs(root: str, now: float | None = None,
+                      open_set: set[str] | None = None,
+                      min_age: int = 0) -> None:
+    if not os.path.isdir(root):
+        return
+
+    real_root = os.path.realpath(root)
+    for dirpath, _dirnames, _filenames in os.walk(
+            root, topdown=False, followlinks=False):
+        if os.path.realpath(dirpath) == real_root:
+            continue
+
+        if min_age:
+            try:
+                st = os.lstat(dirpath)
+            except OSError:
+                continue
+            if st.st_uid != os.getuid():
+                continue
+            if now is not None and st.st_mtime > now - min_age:
+                continue
+            if open_set is not None and os.path.realpath(dirpath) in open_set:
+                continue
+
+        try:
+            if os.listdir(dirpath):
+                continue
+            os.rmdir(dirpath)
+        except OSError:
+            continue
+
+
+def scan_category(cat: Category, now: float | None = None,
+                  open_set: set[str] | None = None) -> ScanResult:
+    if cat.requires_admin:
+        return ScanResult(key=cat.key, available=False)
+    if not _root_available(cat):
+        return ScanResult(key=cat.key, available=False)
+
+    total_bytes = 0
+    files = 0
+    errors = 0
+
+    for root in cat.roots:
+        if not os.path.isdir(root):
+            continue
+
+        for dirpath, _dirnames, filenames in os.walk(
+                root, followlinks=False):
+            for name in filenames:
+                path = os.path.join(dirpath, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    errors += 1
+                    continue
+
+                if not stat.S_ISREG(st.st_mode):
+                    continue
+                if not is_within(path, (root,)):
+                    continue
+
+                total_bytes += st.st_size
+                files += 1
+
+    return ScanResult(key=cat.key, bytes=total_bytes, files=files,
+                      errors=errors, available=True)
+
+
+def scan_all(categories: tuple[Category, ...] = CATEGORIES,
+             now: float | None = None,
+             open_set: set[str] | None = None) -> dict[str, ScanResult]:
+    return {cat.key: scan_category(cat, now=now, open_set=open_set)
+            for cat in categories}
+
+
+def clean_category(cat: Category, now: float | None = None,
+                   open_set: set[str] | None = None) -> ScanResult:
+    if cat.requires_admin:
+        return ScanResult(key=cat.key, available=False)
+    if not _root_available(cat):
+        return ScanResult(key=cat.key, available=False)
+
+    total_bytes = 0
+    files = 0
+    errors = 0
+
+    for root in cat.roots:
+        if not os.path.isdir(root):
+            continue
+
+        for dirpath, _dirnames, filenames in os.walk(
+                root, followlinks=False):
+            for name in filenames:
+                path = os.path.join(dirpath, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    errors += 1
+                    continue
+
+                if not stat.S_ISREG(st.st_mode):
+                    continue
+                if not is_within(path, (root,)):
+                    continue
+
+                try:
+                    os.unlink(path)
+                except OSError:
+                    errors += 1
+                    continue
+
+                total_bytes += st.st_size
+                files += 1
+
+        _prune_empty_dirs(root, now=now, open_set=open_set,
+                          min_age=cat.min_age)
+
+    return ScanResult(key=cat.key, bytes=total_bytes, files=files,
+                      errors=errors, available=True)
+
+
+def clean_selected(keys: Iterable[str],
+                   categories: tuple[Category, ...] = CATEGORIES,
+                   now: float | None = None,
+                   open_set: set[str] | None = None) -> CleanReport:
+    by_key = {cat.key: cat for cat in categories}
+    per_category: dict[str, ScanResult] = {}
+    total_bytes = 0
+    total_files = 0
+    total_errors = 0
+
+    for key in keys:
+        cat = by_key.get(key)
+        if cat is None:
+            continue
+        result = clean_category(cat, now=now, open_set=open_set)
+        per_category[key] = result
+        total_bytes += result.bytes
+        total_files += result.files
+        total_errors += result.errors
+
+    return CleanReport(bytes=total_bytes, files=total_files,
+                       errors=total_errors, per_category=per_category)
