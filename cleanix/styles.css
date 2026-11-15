@@ -1,0 +1,312 @@
+/* ================= Cleanix - GTK4 CSS ================= */
+
+window {
+    background-color: #17161F;
+    font-family: 'Inter', 'Ubuntu', 'Cantarell', sans-serif;
+    color: #F4F3FA;
+}
+
+/* ---------- Top bar ---------- */
+.topbar {
+    background-color: #211F2B;
+    padding: 10px 22px 10px 22px;
+}
+
+.app-logo {
+    font-size: 46px;
+}
+
+.app-name {
+    font-size: 25px;
+    font-weight: 800;
+    color: #F4F3FA;
+}
+
+.app-sub {
+    font-size: 14px;
+    color: #B9B7C7;
+}
+
+.win-btn {
+    background-image: none;
+    background: none;
+    border: none;
+    color: #B9B7C7;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 16px;
+    box-shadow: none;
+}
+.win-btn:hover {
+    background-color: #393746;
+    color: #F4F3FA;
+}
+
+.win-close {
+    background-image: none;
+    background-color: #F4510B;
+    border: none;
+    color: #FFFFFF;
+    border-radius: 14px;
+    padding: 4px 10px;
+    font-size: 14px;
+    box-shadow: none;
+}
+.win-close:hover {
+    background-color: #FF7A18;
+}
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+    background-color: #201E29;
+    padding: 12px 12px 12px 12px;
+}
+
+.side-item {
+    background-image: none;
+    background: none;
+    border: none;
+    border-radius: 12px;
+    padding: 14px 12px;
+    color: #F4F3FA;
+    box-shadow: none;
+}
+.side-item:hover {
+    background-color: rgba(244, 81, 11, 0.14);
+}
+.side-active {
+    background-image: none;
+    background-color: #F4510B;
+}
+.side-active:hover {
+    background-image: none;
+    background-color: #F4510B;
+}
+
+.side-icon {
+    font-size: 20px;
+    color: #F4F3FA;
+}
+
+.side-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #F4F3FA;
+}
+
+.side-sub {
+    font-size: 12px;
+    color: #C9C7D6;
+}
+
+.side-sep {
+    background-color: #35323F;
+    margin: 8px 8px 8px 8px;
+    min-height: 1px;
+}
+
+.ubuntu-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #F4F3FA;
+}
+.ubuntu-ver {
+    font-size: 12px;
+    color: #858394;
+}
+.ubuntu-logo {
+    color: #F4510B;
+    font-size: 26px;
+}
+
+/* ---------- Cards ---------- */
+.card {
+    background-color: #252330;
+    border-radius: 14px;
+    padding: 16px 18px;
+}
+
+.card-inner {
+    background-color: #2B2938;
+    border: 1px solid #393746;
+    border-radius: 15px;
+    padding: 14px 16px;
+}
+
+/* ---------- Typography ---------- */
+.h1 {
+    font-size: 24px;
+    font-weight: 800;
+    color: #F4F3FA;
+}
+.sub {
+    font-size: 15px;
+    color: #B9B7C7;
+}
+.tiny {
+    font-size: 12px;
+    color: #858394;
+}
+.ok-text {
+    font-size: 13px;
+    color: #25CE60;
+}
+
+.metric-label {
+    font-size: 14px;
+    color: #B9B7C7;
+}
+.metric-value {
+    font-size: 30px;
+    font-weight: 800;
+    color: #F4F3FA;
+}
+.metric-pct {
+    font-size: 12px;
+    color: #858394;
+}
+
+.card-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #F4F3FA;
+}
+.big-number {
+    font-size: 40px;
+    font-weight: 800;
+    color: #F4F3FA;
+}
+.muted {
+    font-size: 12px;
+    color: #858394;
+}
+.legend {
+    font-size: 12px;
+    color: #B9B7C7;
+}
+
+/* ---------- Buttons ---------- */
+.btn-green {
+    background-image: none;
+    background-color: #20B94F;
+    border: none;
+    border-radius: 22px;
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 11px 22px;
+    box-shadow: none;
+}
+.btn-green:hover {
+    background-image: none;
+    background-color: #25CE60;
+}
+.btn-green label {
+    color: #FFFFFF;
+}
+
+.arrow-circle {
+    background-color: #3295F5;
+    color: #FFFFFF;
+    border-radius: 16px;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 5px 9px;
+}
+
+/* ---------- Action cards ---------- */
+.action-card {
+    background-image: none;
+    background-color: #2B2938;
+    border: 1px solid #393746;
+    border-radius: 15px;
+    padding: 16px;
+    box-shadow: none;
+}
+.action-card:hover {
+    border-color: #3295F5;
+}
+.action-sel {
+    border: 2px solid #3295F5;
+}
+.action-icon {
+    font-size: 26px;
+}
+.action-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #F4F3FA;
+}
+.action-desc {
+    font-size: 12px;
+    color: #B9B7C7;
+}
+
+/* ---------- Category rows ---------- */
+.cat-check {
+    color: #3295F5;
+    font-size: 15px;
+}
+.cat-name {
+    font-size: 13px;
+    color: #E6E5F0;
+}
+.cat-size {
+    font-size: 13px;
+    color: #B9B7C7;
+}
+
+.op-check {
+    color: #25CE60;
+    font-size: 15px;
+}
+.op-title {
+    font-size: 13px;
+    color: #F4F3FA;
+}
+.op-sub {
+    font-size: 11px;
+    color: #858394;
+}
+.op-date {
+    font-size: 12px;
+    color: #B9B7C7;
+}
+.link {
+    font-size: 12px;
+    color: #3295F5;
+}
+
+/* ---------- System green strip ---------- */
+.sys-strip {
+    background-color: rgba(32, 201, 87, 0.12);
+    border-radius: 10px;
+    padding: 8px 12px;
+}
+
+/* ---------- Status bar ---------- */
+.statusbar {
+    background-color: #211F2B;
+    padding: 10px 22px;
+}
+.status-text {
+    font-size: 13px;
+    color: #E6E5F0;
+}
+.status-btn {
+    background-image: none;
+    background: none;
+    border: none;
+    color: #B9B7C7;
+    padding: 4px 8px;
+    border-radius: 8px;
+    font-size: 13px;
+    box-shadow: none;
+}
+.status-btn:hover {
+    color: #F4F3FA;
+}
+.status-green {
+    color: #25CE60;
+    font-size: 16px;
+}
