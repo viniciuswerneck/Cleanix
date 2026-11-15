@@ -12,7 +12,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, Pango
 
-from . import charts, dialogs, history, scanner, settings, systeminfo
+from . import charts, dialogs, history, memory, scanner, settings, systeminfo
 
 CATEGORY_COLORS = ('#3295F5', '#20C957', '#F4510B', '#914CF5', '#F5A623')
 HEALTH_TEXTS = {
@@ -115,6 +115,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         self._syncing = False
         self._cpu_sample = None
         self._line_values = []
+        self._memory_values = []
         self.cat_rows = {}
         self.history_rows = []
         self.metric_labels = {}
@@ -301,6 +302,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         scroller.set_child(content)
 
         content.append(self._block_health())
+        content.append(self._block_memory())
         content.append(self._block_cards())
         content.append(self._block_actions())
         content.append(self._block_bottom())
@@ -363,6 +365,79 @@ class CleanixWindow(Gtk.ApplicationWindow):
         self.metric_labels[key] = (value, pct)
         self.metric_bars[key] = bar
         return box
+
+    # ---- Painel: memória RAM ----
+    def _block_memory(self):
+        card = vbox(10)
+        card.add_css_class('card')
+
+        head = hbox(8)
+        head.append(emoji('🧠'))
+        head.append(txt('Memória RAM', 'card-title'))
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        head.append(spacer)
+
+        self.memory_release_btn = Gtk.Button(label='Liberar memória')
+        self.memory_release_btn.add_css_class('btn-secondary')
+        self.memory_release_btn.connect('clicked',
+                                        lambda *_: self._open_memory())
+        head.append(self.memory_release_btn)
+        card.append(head)
+
+        body = hbox(18)
+
+        info = vbox(2)
+        info.set_size_request(230, -1)
+        info.set_valign(Gtk.Align.CENTER)
+        self.memory_panel_value = txt('—', 'big-number')
+        info.append(self.memory_panel_value)
+        self.memory_panel_sub = txt('Lendo a memória...', 'muted')
+        info.append(self.memory_panel_sub)
+
+        stats = hbox(16)
+        stats.set_margin_top(4)
+        self.memory_available_label = txt('Disponível: —', 'muted')
+        self.memory_cache_label = txt('Cache: —', 'muted')
+        stats.append(self.memory_available_label)
+        stats.append(self.memory_cache_label)
+        info.append(stats)
+        body.append(info)
+
+        chart_box = vbox(2)
+        chart_box.set_hexpand(True)
+        chart_box.set_valign(Gtk.Align.CENTER)
+        self.memory_chart = charts.make_line_chart(
+            width=320, height=96, color='#3295F5')
+        self.memory_chart.set_values([])
+        chart_box.append(self.memory_chart)
+        body.append(chart_box)
+
+        card.append(body)
+        return card
+
+    def _refresh_memory_panel(self, mem=None):
+        mem = mem or systeminfo.get_mem_info()
+        values = memory.read_meminfo()
+        cache = memory.reclaimable_memory(values)
+
+        self.memory_panel_value.set_text(systeminfo.format_bytes(mem.used))
+        self.memory_panel_sub.set_text(
+            f'de {systeminfo.format_bytes(mem.total)} · '
+            f'{mem.percent_used:.0f}% em uso')
+        self.memory_available_label.set_text(
+            f'Disponível: {systeminfo.format_bytes(mem.available)}')
+        self.memory_cache_label.set_text(
+            f'Cache: {systeminfo.format_bytes(cache)}')
+
+        self._memory_values.append(mem.percent_used / 100.0)
+        self._memory_values = self._memory_values[-30:]
+        self.memory_chart.set_values(self._memory_values)
+
+    def _open_memory(self):
+        dialog = dialogs.MemoryDialog(
+            self, on_released=self._refresh_memory_panel)
+        dialog.present()
 
     # ---- Bloco 2: três cartões ----
     def _block_cards(self):
@@ -673,6 +748,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         value.set_text(systeminfo.format_bytes(mem.used))
         pct.set_text(f'({mem.percent_used:.0f}%)')
         self.metric_bars['mem'].set_fraction(mem.percent_used / 100.0)
+        self._refresh_memory_panel(mem)
 
         cores = os.cpu_count() or 1
         _, cpu_pct = self.metric_labels['cpu']
@@ -708,13 +784,17 @@ class CleanixWindow(Gtk.ApplicationWindow):
             self.system_strip_text.remove_css_class(name)
         self.system_strip_text.add_css_class(cls)
 
-    def _refresh_recoverable(self):
+    def _recoverable_total(self):
         cats = {c.key: c for c in self.categories}
         total = 0
         for key, res in self.results.items():
             cat = cats.get(key)
             if cat is not None and res.available:
                 total += res.bytes
+        return total
+
+    def _refresh_recoverable(self):
+        total = self._recoverable_total()
 
         self.recoverable_label.set_text(systeminfo.format_bytes(total))
         if total:
@@ -878,6 +958,11 @@ class CleanixWindow(Gtk.ApplicationWindow):
             message += (f'\n\nAviso: não foi possível salvar o histórico '
                         f'({history_error}).')
 
+        # Feedback imediato enquanto a nova varredura roda em segundo plano.
+        remaining = max(0, self._recoverable_total() - report.bytes)
+        self.recoverable_label.set_text(systeminfo.format_bytes(remaining))
+        self.recoverable_sub.set_text('Atualizando após a limpeza...')
+
         dialogs.show_info(self, 'Limpeza concluída', message)
         self.status_text.set_text('Pronto para ajudar seu sistema!')
         self._set_busy(False)
@@ -903,6 +988,8 @@ class CleanixWindow(Gtk.ApplicationWindow):
         self._line_values.append(percent / 100.0)
         self._line_values = self._line_values[-30:]
         self.line_chart.set_values(self._line_values)
+
+        self._refresh_memory_panel()
         return True
 
     # ---- diálogos ----
@@ -961,7 +1048,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
             self.history_rows.append(r)
 
     def _open_optimizer(self):
-        dialog = dialogs.OptimizerDialog(self)
+        dialog = dialogs.OptimizerDialog(self, on_done=self._start_scan)
         dialog.present()
 
     def _open_adjustments(self):

@@ -225,9 +225,10 @@ class _ActionDialog(Gtk.Window):
     subtitle = ''
     actions = ()
 
-    def __init__(self, parent):
+    def __init__(self, parent, on_done=None):
         super().__init__()
         self._buttons = {}
+        self._on_done = on_done
         self.set_title(self.heading)
         self.set_modal(True)
         self.set_transient_for(parent)
@@ -308,6 +309,8 @@ class _ActionDialog(Gtk.Window):
             body = result.output or 'Nada havia para fazer — o sistema já ' \
                                     'estava otimizado.'
             show_info(self, f'{action["label"]}: concluído', _limit(body))
+            if self._on_done is not None:
+                self._on_done()
         else:
             self.status.set_text(f'{action["label"]}: não concluído.')
             show_info(self, f'{action["label"]}: não concluído',
@@ -535,8 +538,9 @@ class StartupAppsDialog(Gtk.Window):
 class MemoryDialog(Gtk.Window):
     """Libera o cache de arquivos da memória RAM, fora da limpeza."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, on_released=None):
         super().__init__()
+        self._on_released = on_released
         self.set_title('Memória RAM')
         self.set_modal(True)
         self.set_transient_for(parent)
@@ -635,6 +639,8 @@ class MemoryDialog(Gtk.Window):
             self.status.set_text('Memória liberada.')
             show_info(self, 'Memória RAM', result.output)
             self._refresh()
+            if self._on_released is not None:
+                self._on_released()
         else:
             self.status.set_text('Não foi possível liberar a memória.')
             show_info(self, 'Memória RAM',

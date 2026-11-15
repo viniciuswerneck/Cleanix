@@ -33,6 +33,8 @@ está implementada com allowlist, confirmação e histórico.
   Sobre + rodapé Ubuntu 22.04 LTS.
 - Bloco 1 (Saúde): anel que muda de cor e glifo conforme o espaço livre em
   disco, e métricas reais de disco, memória e CPU.
+- Painel de Memória RAM: uso atual, disponível, cache, gráfico ao vivo com as
+  últimas amostras e botão "Liberar memória".
 - Bloco 2: Espaço Recuperável real, rosca de uso do disco e gráfico de linha
   com amostras de CPU.
 - Bloco 3: Limpeza Inteligente (abre os detalhes), Otimização e Ajustes
@@ -48,16 +50,20 @@ está implementada com allowlist, confirmação e histórico.
   e cache do APT. O APT é marcável e, na limpeza, pede a senha de administrador
   e roda `apt-get clean`.
 - **Limpeza:** confirmação com total selecionado, execução em thread e
-  relatório final. Navegadores abertos geram aviso, mas não bloqueiam.
+  relatório final. Navegadores abertos geram aviso, mas não bloqueiam. O Espaço
+  Recuperável cai na hora com o total liberado e é recalculado pela varredura
+  seguinte.
 - **Histórico:** até 200 entradas, exibidas em diálogo e no cartão "Últimas
   Ações". Pode ser desligado em Configurações.
 - **Otimizador:** limpeza do APT (`apt-get autoremove` + `clean`), journal
   vacuum de 7 dias, `fstrim -av`, liberação do cache da RAM em diálogo próprio
   e gerenciador de Startup Apps. As ações administrativas rodam por
-  `pkexec /usr/bin/bash -c`, com confirmação antes.
+  `pkexec /usr/bin/bash -c`, com confirmação antes. Ao concluir, a tela inicial
+  dispara uma nova varredura.
 - **Memória RAM:** mostra o cache reclamável a partir de `/proc/meminfo` e,
   com confirmação, roda `sync && echo 3 > /proc/sys/vm/drop_caches` via
   `pkexec`. Fica fora do Cleaner para não misturar memória com limpeza de disco.
+  O painel da tela inicial atualiza o uso e o gráfico a cada 2 segundos.
 - **Startup Apps:** lista `/etc/xdg/autostart` e `~/.config/autostart` e
   ativa/desativa por interruptor, sem root (override `Hidden=true`).
 - **Ajustes:** animações do GNOME e limpeza automática de lixeira/temporários,

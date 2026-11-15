@@ -14,6 +14,8 @@ do sistema.
 - Dados reais de disco, memória e CPU, atualizados em segundo plano.
 - Anel de saúde baseado no espaço livre em disco (verde, amarelo ou vermelho).
 - Rosca de uso do disco e gráfico de linha com as últimas amostras de CPU.
+- Painel de memória RAM na tela inicial, com uso, disponível, cache e gráfico
+  ao vivo, além de um atalho para liberar o cache.
 - Varredura segura de cinco categorias:
   - Lixeira do sistema;
   - miniaturas de imagens;
@@ -23,7 +25,8 @@ do sistema.
 - Diálogo de detalhes com tamanho e número de arquivos por categoria.
 - Confirmação explícita antes de remover, com aviso quando há navegadores
   selecionados.
-- Relatório ao final da limpeza (bytes liberados, arquivos removidos e erros).
+- Relatório ao final da limpeza (bytes liberados, arquivos removidos e erros),
+  com o Espaço Recuperável atualizado na hora e revarrido em seguida.
 - Histórico persistente das limpezas em
   `~/.local/share/cleanix/history.json` (últimas 200 entradas).
 - **Otimizador** com ações reais: limpeza do APT, journal vacuum, `fstrim`,
