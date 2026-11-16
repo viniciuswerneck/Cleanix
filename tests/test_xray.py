@@ -379,3 +379,41 @@ class ReportJsonTest(unittest.TestCase):
             self._snapshot(), bios_details='Serial Number: SEC\n', redact=False))
         self.assertIn('SEC', data['bios']['details'])
         self.assertFalse(data['meta']['redacted'])
+
+
+class ReportCsvTest(unittest.TestCase):
+    def _snapshot(self):
+        return {
+            'bios': {'summary': 'BIOS', 'details': '', 'fields': {}},
+            'hardware': {'summary': '', 'details': ''},
+            'programs': {
+                'apt': [('bash, core', '5.2', '1 MB')],
+                'snap': [('firefox', '120', '')],
+                'flatpak_apps': [], 'flatpak_runtimes': 0, 'summary': ''},
+            'network': {'summary': '', 'details': 'MAC: aa:bb:cc:dd:ee:ff'},
+            'system': {'summary': '', 'details': ''},
+            'disks': [{'name': 'sda', 'type': 'disk', 'size_total': 100,
+                       'size_used': 10, 'pct_used': 10, 'mount_point': '/'}],
+            'alerts': [{'level': 'warn', 'text': 'Partição / com 95% de uso'}],
+            'limitations': [],
+        }
+
+    def test_csv_has_sections_and_escapes_commas(self):
+        import csv, io
+        text = xray.build_report_csv(self._snapshot())
+        rows = list(csv.reader(io.StringIO(text)))
+        self.assertIn(['section', 'origin', 'name', 'version', 'size',
+                       'type', 'total', 'used', 'pct', 'mount',
+                       'level', 'text'], rows)
+        program = [r for r in rows if r and r[0] == 'program' and r[1] == 'apt'][0]
+        self.assertEqual(program[2], 'bash, core')
+        disk = [r for r in rows if r and r[0] == 'disk'][0]
+        self.assertEqual(disk[2], 'sda')
+        alert = [r for r in rows if r and r[0] == 'alert'][0]
+        self.assertEqual(alert[10], 'warn')
+
+    def test_csv_redacts_identifiers_when_enabled(self):
+        text = xray.build_report_csv(
+            self._snapshot(), bios_details='Serial Number: SEC\n', redact=True)
+        self.assertNotIn('aa:bb:cc:dd:ee:ff', text)
+        self.assertNotIn('SEC', text)

@@ -7,6 +7,8 @@ import os
 import platform
 import re
 import shutil
+import csv
+import io
 import json
 from datetime import datetime
 from pathlib import Path
@@ -1520,3 +1522,48 @@ def build_report_json(snapshot, bios_details='', hw_details='',
         'limitations': list(limitations),
     }
     return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def build_report_csv(snapshot, bios_details='', hw_details='',
+                     bios_source='', hw_source='', priv_error='',
+                     redact=True):
+    """Monta o relatório CSV do Raio-X."""
+    snap = snapshot or {}
+    programs = snap.get('programs', {}) or {}
+    disks = snap.get('disks', []) or []
+    alerts = snap.get('alerts', []) or []
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    header = ['section', 'origin', 'name', 'version', 'size',
+              'type', 'total', 'used', 'pct', 'mount', 'level', 'text']
+    writer.writerow(header)
+
+    for origin, key in (('apt', 'apt'), ('snap', 'snap'), ('flatpak', 'flatpak_apps')):
+        for item in programs.get(key) or []:
+            if not item:
+                continue
+            name = item[0] if len(item) > 0 else ''
+            version = item[1] if len(item) > 1 else ''
+            size = item[2] if len(item) > 2 else ''
+            writer.writerow(['program', origin, name, version, size,
+                             '', '', '', '', '', '', ''])
+
+    for disk in disks:
+        total = disk.get('size_total') or 0
+        used = disk.get('size_used') or 0
+        pct = disk.get('pct_used')
+        writer.writerow([
+            'disk', '', disk.get('name') or '', '', '',
+            disk.get('type') or '',
+            systeminfo.format_bytes(total) if total else '',
+            systeminfo.format_bytes(used) if total else '',
+            str(pct) + '%' if pct is not None else '',
+            disk.get('mount_point') or '', '', '',
+        ])
+
+    for alert in alerts:
+        writer.writerow(['alert', '', '', '', '', '', '', '', '', '',
+                         alert.get('level') or '', alert.get('text') or ''])
+
+    return output.getvalue()
