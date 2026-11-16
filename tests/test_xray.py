@@ -231,6 +231,20 @@ class AlertsTest(unittest.TestCase):
     def test_build_alerts_tolerates_bad_bios_date(self):
         self.assertEqual(xray.build_alerts('???', [], 0, 0, 2026), [])
 
+    def test_build_alerts_high_temperature(self):
+        sensors = {'readings': [{'label': 'CPU', 'temp_c': 92.0}],
+                   'summary': 'CPU: 92 °C'}
+        alerts = xray.build_alerts('', [], 0, 0, 2026, sensors=sensors)
+        self.assertTrue(any(a['level'] == 'warn' and '92' in a['text'] for a in alerts))
+
+    def test_build_alerts_battery_health(self):
+        power = {'present': True, 'health_pct': 55.0, 'cycle_count': 1200,
+                 'summary': 'bat'}
+        alerts = xray.build_alerts('', [], 0, 0, 2026, power=power)
+        self.assertTrue(any(a['level'] == 'warn' for a in alerts))
+        self.assertTrue(any(a['level'] == 'info' and '1200' in str(a['text']) for a in alerts))
+
+
 
 class ReportHtmlV2Test(unittest.TestCase):
     def _snapshot(self):
@@ -417,3 +431,22 @@ class ReportCsvTest(unittest.TestCase):
             self._snapshot(), bios_details='Serial Number: SEC\n', redact=True)
         self.assertNotIn('aa:bb:cc:dd:ee:ff', text)
         self.assertNotIn('SEC', text)
+
+
+class SystemSensorsPowerTest(unittest.TestCase):
+    @mock.patch.object(xray.systeminfo, 'read_power_supply',
+                       return_value={'present': True, 'summary': '80%, Discharging',
+                                     'capacity': 80, 'health_pct': 90.0})
+    @mock.patch.object(xray.systeminfo, 'collect_sensors',
+                       return_value={'summary': 'CPU: 45 °C',
+                                     'readings': [{'label': 'CPU', 'temp_c': 45.0}]})
+    @mock.patch.object(xray, 'collect_network',
+                       return_value={'summary': 'n', 'details': 'd', 'interfaces': []})
+    @mock.patch.object(xray, '_cmd', return_value='')
+    @mock.patch.object(xray, '_read_text', return_value='100.0 50.0')
+    def test_collect_system_includes_sensors_and_power(self, *_mocks):
+        system = xray.collect_system()
+        self.assertIn('sensors', system)
+        self.assertIn('power', system)
+        self.assertEqual(system['sensors']['summary'], 'CPU: 45 °C')
+        self.assertTrue(system['power']['present'])

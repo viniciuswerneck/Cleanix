@@ -263,7 +263,7 @@ def secure_boot_state(base_path: str | Path = '/sys/firmware/efi/efivars') -> st
 
 
 def collect_system() -> dict:
-    """Coleta uptime, atualizações pendentes, Secure Boot e TPM."""
+    """Coleta uptime, atualizações, Secure Boot, TPM, sensores e energia."""
     uptime = format_uptime(parse_uptime(_read_text(Path('/proc/uptime'))))
     updates = 0
     if shutil.which('apt'):
@@ -281,12 +281,26 @@ def collect_system() -> dict:
     tpm_text = (i18n.t('xray.system.present') if tpm
                 else i18n.t('xray.system.absent'))
 
-    fields = (
+    try:
+        sensors = systeminfo.collect_sensors()
+    except Exception:
+        sensors = {'summary': '', 'readings': []}
+    try:
+        power = systeminfo.read_power_supply()
+    except Exception:
+        power = {'present': False, 'summary': ''}
+
+    fields = [
         (i18n.t('xray.system.uptime'), uptime),
         (i18n.t('xray.system.updates'), updates),
         (i18n.t('xray.system.secure_boot'), secure_text),
         (i18n.t('xray.system.tpm'), tpm_text),
-    )
+    ]
+    if sensors.get('summary'):
+        fields.append((i18n.t('xray.system.temperature'), sensors['summary']))
+    if power.get('present') and power.get('summary'):
+        fields.append((i18n.t('xray.system.battery'), power['summary']))
+
     summary = ' | '.join(f'{label}: {value}' for label, value in fields)
     lines = ['▸ ' + i18n.t('xray.section.systeminfo')]
     lines.extend(f'  • {label}: {value}' for label, value in fields)
@@ -297,6 +311,8 @@ def collect_system() -> dict:
         'updates': updates,
         'secure_boot': secure,
         'tpm': tpm,
+        'sensors': sensors,
+        'power': power,
     }
 
 
@@ -310,9 +326,11 @@ def _bios_year(value: str) -> int:
 
 
 def build_alerts(bios_date: str, disk_usages, flatpak_runtimes,
-                 pending_updates, now_year: int) -> list[dict]:
+                 pending_updates, now_year: int, sensors=None, power=None) -> list[dict]:
     """Calcula destaques locais, sem rede e sem privilégios."""
     alerts = []
+    sensors = sensors or {}
+    power = power or {}
     year = _bios_year(bios_date)
     if year and now_year - year > 6:
         alerts.append({
@@ -352,6 +370,52 @@ def build_alerts(bios_date: str, disk_usages, flatpak_runtimes,
             'level': 'info',
             'text': i18n.t('xray.alert.updates', n=updates),
         })
+
+    readings = sensors.get('readings') or []
+    hottest = None
+    for r in readings:
+        try:
+            temp = float(r.get('temp_c'))
+        except (TypeError, ValueError):
+            continue
+        if hottest is None or temp > hottest.get('temp_c', -999):
+            hottest = {'temp_c': temp, 'label': r.get('label') or r.get('name') or ''}
+    if hottest and hottest['temp_c'] >= 85:
+        alerts.append({
+            'level': 'warn',
+            'text': i18n.t('xray.alert.temp',
+                           temp=f"{hottest['temp_c']:.0f}",
+                           label=hottest.get('label') or 'sensor'),
+        })
+
+    if power.get('present'):
+        health = power.get('health_pct')
+        try:
+            health = float(health) if health is not None else None
+        except (TypeError, ValueError):
+            health = None
+        if health is not None and health < 80:
+            alerts.append({
+                'level': 'warn',
+                'text': i18n.t('xray.alert.battery_health',
+                               pct=f"{health:.0f}"),
+            })
+        if health is not None and health < 60:
+            alerts.append({
+                'level': 'info',
+                'text': i18n.t('xray.alert.battery_health_low',
+                               pct=f"{health:.0f}"),
+            })
+        cycles = power.get('cycle_count')
+        try:
+            cycles = int(cycles) if cycles is not None else None
+        except (TypeError, ValueError):
+            cycles = None
+        if cycles is not None and cycles >= 1000:
+            alerts.append({
+                'level': 'info',
+                'text': i18n.t('xray.alert.battery_cycles', n=cycles),
+            })
     return alerts
 
 
@@ -593,7 +657,8 @@ def collect_unprivileged() -> dict:
 
     alerts = build_alerts(
         fields.get('bios_date', ''), disks, flatpak_runtimes,
-        system.get('updates', 0), datetime.now().year)
+        system.get('updates', 0), datetime.now().year,
+        sensors=system.get('sensors'), power=system.get('power'))
 
     return {
         'bios': {'summary': bios_summary, 'details': bios_details, 'fields': fields},
