@@ -12,7 +12,7 @@ gi.require_version('Gdk', '4.0')
 from gi.repository import Gdk, GLib, Gtk, Pango
 
 from . import (adjustments, autostart, history, i18n, memory, settings,
-               systeminfo)
+               systeminfo, xray)
 from .execution import Result, execute_command
 import re
 
@@ -1126,3 +1126,294 @@ class SmartHealthDialog(Gtk.Window):
         self.status.set_text('')
         return GLib.SOURCE_REMOVE
 
+
+class XRayDialog(Gtk.Window):
+    """Raio-X da máquina: resumo por tópicos e detalhes expansíveis."""
+
+    PROGRAM_RENDER_LIMIT = 500
+
+    def __init__(self, parent):
+        super().__init__()
+        self.set_title(i18n.t('xray.title'))
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(760, 620)
+        self.add_css_class('dialog')
+        self.add_css_class('smart-dialog')
+
+        self._snapshot = None
+        self._collecting = False
+        self._priv_bios = False
+        self._priv_hw = False
+        self._prog_lists = {'apt': [], 'snap': [], 'flatpak_apps': []}
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_vexpand(True)
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+
+        head = _hbox(8)
+        head.append(_icon('🖥️'))
+        title_box = _vbox(2)
+        title_box.set_hexpand(True)
+        title_box.append(_txt(i18n.t('xray.title'), 'dialog-title'))
+        title_box.append(_txt(i18n.t('xray.subtitle'), 'muted', wrap=True))
+        head.append(title_box)
+        self.refresh_btn = Gtk.Button(label=i18n.t('xray.refresh'))
+        self.refresh_btn.add_css_class('status-btn')
+        self.refresh_btn.connect('clicked', lambda *_: self._collect())
+        head.append(self.refresh_btn)
+        root.append(head)
+
+        # Resumo
+        root.append(_txt(i18n.t('xray.summary'), 'card-title'))
+        self.summary_bios = _txt('—', 'muted', wrap=True)
+        self.summary_hw = _txt('—', 'muted', wrap=True)
+        self.summary_prog = _txt('—', 'muted', wrap=True)
+        for w in (self.summary_bios, self.summary_hw, self.summary_prog):
+            root.append(w)
+
+        self.status = _txt('', 'muted', wrap=True)
+        root.append(self.status)
+
+        # BIOS expander
+        self.bios_details = _txt('', 'muted', wrap=True)
+        self.bios_details.set_selectable(True)
+        self.bios_source = _txt('', 'muted')
+        self.bios_full_btn = Gtk.Button(label='🔒 ' + i18n.t('xray.details_full'))
+        self.bios_full_btn.add_css_class('btn-secondary')
+        self.bios_full_btn.connect('clicked', lambda *_: self._fetch_priv_bios())
+        bios_box = _vbox(6)
+        bios_box.append(self.bios_source)
+        bios_box.append(self.bios_details)
+        bios_box.append(self.bios_full_btn)
+        self.exp_bios = Gtk.Expander(label=i18n.t('xray.bios'))
+        self.exp_bios.set_child(bios_box)
+        self.exp_bios.connect('notify::expanded', self._on_expand_bios)
+        root.append(self.exp_bios)
+
+        # Hardware expander
+        self.hw_details = _txt('', 'muted', wrap=True)
+        self.hw_details.set_selectable(True)
+        self.hw_source = _txt('', 'muted')
+        self.hw_full_btn = Gtk.Button(label='🔒 ' + i18n.t('xray.details_full'))
+        self.hw_full_btn.add_css_class('btn-secondary')
+        self.hw_full_btn.connect('clicked', lambda *_: self._fetch_priv_hw())
+        hw_box = _vbox(6)
+        hw_box.append(self.hw_source)
+        hw_box.append(self.hw_details)
+        hw_box.append(self.hw_full_btn)
+        self.exp_hw = Gtk.Expander(label=i18n.t('xray.hardware'))
+        self.exp_hw.set_child(hw_box)
+        self.exp_hw.connect('notify::expanded', self._on_expand_hw)
+        root.append(self.exp_hw)
+
+        # Programs expander
+        self.prog_box = _vbox(8)
+        self.prog_note = _txt('', 'muted', wrap=True)
+        self.prog_box.append(self.prog_note)
+        self.prog_sections = {}
+        for key, title_key in (
+            ('apt', 'xray.programs.apt'),
+            ('snap', 'xray.programs.snap'),
+            ('flatpak_apps', 'xray.programs.flatpak'),
+        ):
+            sec = self._make_prog_section(key, i18n.t(title_key))
+            self.prog_sections[key] = sec
+            self.prog_box.append(sec['expander'])
+        self.exp_prog = Gtk.Expander(label=i18n.t('xray.programs'))
+        self.exp_prog.set_child(self.prog_box)
+        self.exp_prog.connect('notify::expanded', self._on_expand_prog)
+        root.append(self.exp_prog)
+
+        sep = Gtk.Separator()
+        sep.set_margin_top(6)
+        sep.set_margin_bottom(6)
+        root.append(sep)
+
+        close = Gtk.Button(label=i18n.t('common.close'))
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        root.append(close)
+
+        scroller.set_child(root)
+        self.set_child(scroller)
+        self._collect()
+
+    def _make_prog_section(self, key, title):
+        exp = Gtk.Expander(label=title)
+        box = _vbox(6)
+        count_lbl = _txt('', 'muted')
+        search = Gtk.SearchEntry()
+        search.set_placeholder_text(i18n.t('xray.search'))
+        showing = _txt('', 'muted')
+        list_lbl = _txt('', 'muted', wrap=True)
+        list_lbl.set_selectable(True)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_min_content_height(140)
+        scroll.set_child(list_lbl)
+        box.append(count_lbl)
+        box.append(search)
+        box.append(showing)
+        box.append(scroll)
+        exp.set_child(box)
+        search.connect('search-changed', lambda *_: self._update_prog_list(key))
+        return {
+            'expander': exp, 'box': box, 'count': count_lbl,
+            'search': search, 'showing': showing, 'list': list_lbl,
+        }
+
+    def _set_collecting(self, busy):
+        self._collecting = busy
+        self.refresh_btn.set_sensitive(not busy)
+        self.bios_full_btn.set_sensitive(not busy)
+        self.hw_full_btn.set_sensitive(not busy)
+        if busy:
+            self.status.set_text(i18n.t('xray.collecting'))
+        else:
+            self.status.set_text('')
+
+    def _collect(self):
+        if self._collecting:
+            return
+        self._set_collecting(True)
+        threading.Thread(target=self._collect_work, daemon=True,
+                         name='cleanix-xray').start()
+
+    def _collect_work(self):
+        try:
+            snap = xray.collect_unprivileged()
+        except Exception as exc:
+            snap = {'bios': {'summary': '', 'details': str(exc), 'fields': {}},
+                    'hardware': {'summary': '', 'details': ''},
+                    'programs': {'apt': [], 'snap': [], 'flatpak_apps': [],
+                                 'flatpak_runtimes': 0, 'summary': ''},
+                    'limitations': [str(exc)]}
+        GLib.idle_add(self._apply_snapshot, snap)
+
+    def _apply_snapshot(self, snap):
+        self._snapshot = snap
+        bios = snap.get('bios', {})
+        hw = snap.get('hardware', {})
+        prog = snap.get('programs', {})
+        self.summary_bios.set_text(bios.get('summary') or i18n.t('xray.unavailable'))
+        self.summary_hw.set_text(hw.get('summary') or i18n.t('xray.unavailable'))
+        ps = prog.get('summary') or ''
+        rt = prog.get('flatpak_runtimes', 0)
+        self.summary_prog.set_text(ps or i18n.t('xray.unavailable'))
+        self._prog_lists['apt'] = prog.get('apt') or []
+        self._prog_lists['snap'] = prog.get('snap') or []
+        self._prog_lists['flatpak_apps'] = prog.get('flatpak_apps') or []
+        # update details if not replaced by privileged
+        if not self._priv_bios:
+            self.bios_details.set_text(bios.get('details') or i18n.t('xray.unavailable'))
+            self.bios_source.set_text(i18n.t('xray.source_unprivileged'))
+        if not self._priv_hw:
+            self.hw_details.set_text(hw.get('details') or i18n.t('xray.unavailable'))
+            self.hw_source.set_text(i18n.t('xray.source_unprivileged'))
+        self.prog_note.set_text(i18n.t('xray.programs.runtimes', n=rt))
+        for key in self.prog_sections:
+            self._update_prog_list(key)
+        self._set_collecting(False)
+        return GLib.SOURCE_REMOVE
+
+    def _on_expand_bios(self, exp, _p):
+        if exp.get_expanded() and self._snapshot and not self._priv_bios:
+            bios = self._snapshot.get('bios', {})
+            if not self.bios_details.get_text():
+                self.bios_details.set_text(bios.get('details') or i18n.t('xray.unavailable'))
+
+    def _on_expand_hw(self, exp, _p):
+        if exp.get_expanded() and self._snapshot and not self._priv_hw:
+            hw = self._snapshot.get('hardware', {})
+            if not self.hw_details.get_text():
+                self.hw_details.set_text(hw.get('details') or i18n.t('xray.unavailable'))
+
+    def _on_expand_prog(self, exp, _p):
+        if exp.get_expanded():
+            for key in self.prog_sections:
+                self._update_prog_list(key)
+
+    def _fetch_priv_bios(self):
+        if self._collecting:
+            return
+        self.bios_full_btn.set_sensitive(False)
+        self.status.set_text(i18n.t('xray.collecting'))
+        threading.Thread(target=self._priv_bios_work, daemon=True,
+                         name='cleanix-xray-bios').start()
+
+    def _priv_bios_work(self):
+        try:
+            res = xray.collect_privileged_bios()
+        except Exception as exc:
+            res = {'ok': False, 'details': '', 'source': 'dmidecode', 'error': str(exc)}
+        GLib.idle_add(self._apply_priv_bios, res)
+
+    def _apply_priv_bios(self, res):
+        self.bios_full_btn.set_sensitive(True)
+        self.status.set_text('')
+        if res.get('ok'):
+            self._priv_bios = True
+            self.bios_details.set_text(res.get('details') or i18n.t('xray.unavailable'))
+            self.bios_source.set_text(i18n.t('xray.source_privileged'))
+        else:
+            err = res.get('error') or i18n.t('xray.unavailable')
+            self.bios_source.set_text(i18n.t('xray.source_unprivileged'))
+            # keep unprivileged details, show error in status
+            self.status.set_text(err)
+        return GLib.SOURCE_REMOVE
+
+    def _fetch_priv_hw(self):
+        if self._collecting:
+            return
+        self.hw_full_btn.set_sensitive(False)
+        self.status.set_text(i18n.t('xray.collecting'))
+        threading.Thread(target=self._priv_hw_work, daemon=True,
+                         name='cleanix-xray-hw').start()
+
+    def _priv_hw_work(self):
+        try:
+            res = xray.collect_privileged_hardware()
+        except Exception as exc:
+            res = {'ok': False, 'details': '', 'source': 'lshw', 'error': str(exc)}
+        GLib.idle_add(self._apply_priv_hw, res)
+
+    def _apply_priv_hw(self, res):
+        self.hw_full_btn.set_sensitive(True)
+        self.status.set_text('')
+        if res.get('ok'):
+            self._priv_hw = True
+            self.hw_details.set_text(res.get('details') or i18n.t('xray.unavailable'))
+            self.hw_source.set_text(i18n.t('xray.source_privileged'))
+        else:
+            err = res.get('error') or i18n.t('xray.unavailable')
+            self.hw_source.set_text(i18n.t('xray.source_unprivileged'))
+            self.status.set_text(err)
+        return GLib.SOURCE_REMOVE
+
+    def _update_prog_list(self, key):
+        sec = self.prog_sections.get(key)
+        if not sec:
+            return
+        items = self._prog_lists.get(key) or []
+        q = (sec['search'].get_text() or '').strip().lower()
+        if q:
+            filtered = [(n, v) for (n, v) in items if q in n.lower() or q in (v or '').lower()]
+        else:
+            filtered = list(items)
+        sec['count'].set_text(f"{len(items)}")
+        total = len(filtered)
+        show = filtered[: self.PROGRAM_RENDER_LIMIT]
+        if show:
+            lines = [f"{n}  —  {v}" if v else n for (n, v) in show]
+            sec['list'].set_text('\n'.join(lines))
+        else:
+            sec['list'].set_text(i18n.t('xray.empty'))
+        sec['showing'].set_text(
+            i18n.t('xray.showing', n=len(show), m=total))

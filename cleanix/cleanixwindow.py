@@ -228,6 +228,8 @@ class CleanixWindow(Gtk.ApplicationWindow):
              lambda *_: self._open_optimizer()),
             (i18n.t('sidebar.adjustments'), 'emblem-system-symbolic', False,
              lambda *_: self._open_adjustments()),
+            (i18n.t('sidebar.xray'), 'computer-symbolic', False,
+             lambda *_: self._open_xray()),
         ]
         for name, icon, active, on_click in items:
             side.append(self._side_item(name, icon, active, on_click))
@@ -1075,6 +1077,9 @@ class CleanixWindow(Gtk.ApplicationWindow):
             self._refresh_recoverable()
             self._refresh_categories()
         self._refresh_history()
+
+    def _open_xray(self):
+        dialogs.XRayDialog(self).present()
 
     def _show_help_about(self):
         title, body = dialogs.help_about_text()
