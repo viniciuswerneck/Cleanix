@@ -26,7 +26,9 @@ do sistema.
 - **Raio-X da máquina**: resumo rápido por tópicos (BIOS/sistema, hardware e
   programas instalados) com detalhes expansíveis, coleta sob demanda (com opção
   de detalhes completos via administrador), programas separados por APT, Snap
-  e Flatpak (com busca) e **exportação de relatório completo em HTML**.
+  e Flatpak (com busca) e **exportação de relatório completo em HTML** — com
+  senha única para incluir também os detalhes completos de BIOS e hardware,
+  tabelas pesquisáveis e layout pronto para impressão/PDF.
 - Painel de memória RAM na tela inicial, com uso e capacidade total,
   disponível, cache e gráfico ao vivo, além de um atalho para liberar o cache.
 - Varredura segura de cinco categorias:

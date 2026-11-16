@@ -1597,85 +1597,64 @@ class XRayDialog(Gtk.Window):
         self._write_export(Path(path))
 
     def _write_export(self, path):
+        if self._priv_bios and self._priv_hw:
+            self._finish_export(path, None)
+            return
+        self.export_btn.set_sensitive(False)
+        self._set_status(i18n.t('xray.collecting_full'))
+        threading.Thread(target=self._export_work, args=(path,), daemon=True,
+                         name='cleanix-xray-export').start()
+
+    def _export_work(self, path):
         try:
-            html = self._build_export_html()
+            res = xray.collect_privileged_all()
+        except Exception as exc:
+            res = {'ok': False, 'bios': {}, 'hardware': {}, 'error': str(exc)}
+        GLib.idle_add(self._finish_export, path, res)
+
+    def _finish_export(self, path, res):
+        self.export_btn.set_sensitive(True)
+        self._set_status('')
+        priv_error = ''
+        if res is not None:
+            bios = res.get('bios') or {}
+            hw = res.get('hardware') or {}
+            if bios.get('ok') and bios.get('details'):
+                self._priv_bios = True
+                self._bios_detail_text = bios['details']
+                self._bios_source_text = i18n.t('xray.source_privileged')
+                self._set_text_area(self.bios_details, self._bios_detail_text)
+                self.bios_source.set_text(self._bios_source_text)
+            if hw.get('ok') and hw.get('details'):
+                self._priv_hw = True
+                self._hw_detail_text = hw['details']
+                self._hw_source_text = i18n.t('xray.source_privileged')
+                self._set_text_area(self.hw_details, self._hw_detail_text)
+                self.hw_source.set_text(self._hw_source_text)
+            if not res.get('ok'):
+                priv_error = res.get('error') or ''
+        try:
+            html = self._build_export_html(priv_error)
             Path(path).write_text(html, encoding='utf-8')
-            show_info(self, i18n.t('xray.export_done_title'),
-                      i18n.t('xray.export_done_body', path=str(path)))
+            body = i18n.t('xray.export_done_body', path=str(path))
+            if priv_error:
+                body += '\n\n' + i18n.t(
+                    'xray.html.priv_missing_body', detail=priv_error)
+            show_info(self, i18n.t('xray.export_done_title'), body)
         except Exception as exc:
             show_info(self, i18n.t('xray.export_error_title'),
                       i18n.t('xray.export_error_body', detail=str(exc)))
+        return GLib.SOURCE_REMOVE
 
-    def _build_export_html(self):
-        import html as _html
+    def _build_export_html(self, priv_error=''):
         snap = self._snapshot or {}
-        bios = snap.get('bios', {})
-        hw = snap.get('hardware', {})
-        prog = snap.get('programs', {})
-        title = i18n.t('xray.title')
-        now = i18n.format_datetime_now() if hasattr(i18n, 'format_datetime_now') else ''
-        try:
-            from datetime import datetime
-            if not now:
-                now = datetime.now().strftime('%Y-%m-%d %H:%M')
-        except Exception:
-            pass
-
-        def esc(s):
-            return _html.escape(str(s or ''))
-
-        def pre(s):
-            return '<pre>' + esc(s) + '</pre>' if s else '<p class="muted">' + esc(i18n.t('xray.unavailable')) + '</p>'
-
-        def list_section(name, items):
-            rows = ''.join(f'<tr><td>{esc(n)}</td><td>{esc(v)}</td></tr>' for n, v in (items or []))
-            if not rows:
-                rows = f'<tr><td colspan="2" class="muted">{esc(i18n.t("xray.empty"))}</td></tr>'
-            return f'<h3>{esc(name)} ({len(items or [])})</h3><table><thead><tr><th>{esc(i18n.t("xray.col_name"))}</th><th>{esc(i18n.t("xray.col_version"))}</th></tr></thead><tbody>{rows}</tbody></table>'
-
-        rt = prog.get('flatpak_runtimes', 0)
-        programs_html = (
-            list_section(i18n.t('xray.programs.apt'), prog.get('apt') or []) +
-            list_section(i18n.t('xray.programs.snap'), prog.get('snap') or []) +
-            list_section(i18n.t('xray.programs.flatpak'), prog.get('flatpak_apps') or []) +
-            f'<p><em>{esc(i18n.t("xray.programs.runtimes", n=rt))}</em></p>'
+        bios = snap.get('bios', {}) or {}
+        hw = snap.get('hardware', {}) or {}
+        return xray.build_report_html(
+            snap,
+            bios_details=self._bios_detail_text or bios.get('details') or '',
+            hw_details=self._hw_detail_text or hw.get('details') or '',
+            bios_source=self._bios_source_text,
+            hw_source=self._hw_source_text,
+            priv_error=priv_error,
         )
-
-        html_doc = f"""<!doctype html>
-<html lang="pt-br">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{esc(title)}</title>
-<style>
-body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif;margin:24px;color:#1f2937;background:#f7f7fb;}}
-h1{{margin:0 0 4px 0}} .sub{{color:#555;margin:0 0 20px 0}}
-.card{{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:14px 0}}
-h2{{margin:0 0 8px 0;font-size:20px}} h3{{margin:16px 0 6px 0}}
-pre{{white-space:pre-wrap;word-break:break-word;background:#f3f4f6;border-radius:8px;padding:12px;font-size:13px;line-height:1.45}}
-table{{width:100%;border-collapse:collapse;font-size:13px}} th,td{{border-bottom:1px solid #eee;padding:6px 8px;text-align:left;vertical-align:top}}
-th{{background:#fafafa}} .muted{{color:#777}} .src{{color:#2563eb;font-size:13px;margin:0 0 8px 0}}
-</style>
-</head>
-<body>
-<h1>{esc(title)}</h1>
-<p class="sub">{esc(now)}</p>
-<div class="card"><h2>{esc(i18n.t('xray.summary'))}</h2>
-<p><strong>{esc(i18n.t('xray.bios'))}:</strong> {esc(bios.get('summary') or i18n.t('xray.unavailable'))}</p>
-<p><strong>{esc(i18n.t('xray.hardware'))}:</strong> {esc(hw.get('summary') or i18n.t('xray.unavailable'))}</p>
-<p><strong>{esc(i18n.t('xray.programs'))}:</strong> {esc(prog.get('summary') or i18n.t('xray.unavailable'))}</p>
-</div>
-<div class="card"><h2>{esc(i18n.t('xray.bios'))}</h2>
-<p class="src">{esc(self._bios_source_text or i18n.t('xray.source_unprivileged'))}</p>
-{pre(self._bios_detail_text or bios.get('details'))}
-</div>
-<div class="card"><h2>{esc(i18n.t('xray.hardware'))}</h2>
-<p class="src">{esc(self._hw_source_text or i18n.t('xray.source_unprivileged'))}</p>
-{pre(self._hw_detail_text or hw.get('details'))}
-</div>
-<div class="card"><h2>{esc(i18n.t('xray.programs'))}</h2>
-{programs_html}
-</div>
-</body></html>"""
-        return html_doc
-

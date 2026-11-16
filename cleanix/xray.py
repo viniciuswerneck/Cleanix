@@ -9,7 +9,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import systeminfo
+from . import i18n, systeminfo
 from .execution import execute_command
 
 
@@ -360,3 +360,453 @@ def collect_privileged_hardware() -> dict:
         return {'ok': True, 'details': res.output or '', 'source': 'lshw', 'error': ''}
     return {'ok': False, 'details': res.output or '', 'source': 'lshw',
             'error': res.error or 'Falha ao executar lshw'}
+
+
+PRIV_BIOS_MARK = '__CLEANIX_XRAY_BIOS__'
+PRIV_HW_MARK = '__CLEANIX_XRAY_HW__'
+
+
+def collect_privileged_all() -> dict:
+    """Coleta BIOS (dmidecode) e hardware (lshw) com uma única senha."""
+    have_bios = bool(shutil.which('dmidecode'))
+    have_hw = bool(shutil.which('lshw'))
+    if not have_bios and not have_hw:
+        return {
+            'ok': False,
+            'bios': {'ok': False, 'details': '', 'source': 'dmidecode'},
+            'hardware': {'ok': False, 'details': '', 'source': 'lshw'},
+            'error': 'dmidecode e lshw não encontrados',
+        }
+    bios_cmd = ('dmidecode -t bios -t system -t baseboard -t chassis 2>&1'
+                if have_bios else 'true')
+    hw_cmd = 'lshw -short 2>&1' if have_hw else 'true'
+    command = (f'echo {PRIV_BIOS_MARK}; {bios_cmd}; '
+               f'echo {PRIV_HW_MARK}; {hw_cmd}')
+    res = execute_command(command, as_root=True, timeout=150)
+    output = res.output or ''
+    bios_text = ''
+    hw_text = ''
+    if PRIV_BIOS_MARK in output:
+        rest = output.split(PRIV_BIOS_MARK, 1)[1]
+        if PRIV_HW_MARK in rest:
+            bios_text, hw_text = rest.split(PRIV_HW_MARK, 1)
+        else:
+            bios_text = rest
+    elif PRIV_HW_MARK in output:
+        hw_text = output.split(PRIV_HW_MARK, 1)[1]
+    else:
+        hw_text = output
+    bios_text = bios_text.strip()
+    hw_text = hw_text.strip()
+    return {
+        'ok': bool(res.ok),
+        'bios': {
+            'ok': bool(res.ok and have_bios and bios_text),
+            'details': bios_text,
+            'source': 'dmidecode',
+        },
+        'hardware': {
+            'ok': bool(res.ok and have_hw and hw_text),
+            'details': hw_text,
+            'source': 'lshw',
+        },
+        'error': '' if res.ok else (
+            res.error or 'Falha ao coletar os detalhes completos'),
+    }
+
+
+def os_pretty_name() -> str:
+    try:
+        info = platform.freedesktop_os_release()
+    except Exception:
+        return ''
+    return info.get('PRETTY_NAME') or info.get('NAME') or ''
+
+
+_REPORT_CSS = """
+:root {
+    --bg: #f3f5fb;
+    --card: #ffffff;
+    --ink: #1c2333;
+    --muted: #65708a;
+    --line: #e4e8f2;
+    --brand: #2f6fed;
+    --brand-soft: #eef3ff;
+    --purple: #7c3aed;
+    --green: #15803d;
+    --orange: #b45309;
+    --teal: #0f766e;
+}
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+    line-height: 1.5;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 56px; }
+.hero {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    padding: 28px 30px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, #1f2a4a 0%, #2f6fed 58%, #7c3aed 100%);
+    color: #fff;
+    box-shadow: 0 18px 42px rgba(31, 42, 74, .26);
+}
+.hero-icon { font-size: 54px; line-height: 1; }
+.eyebrow {
+    margin: 0 0 2px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, .7);
+}
+h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -.01em; }
+.meta { margin: 0; font-size: 14px; color: rgba(255, 255, 255, .84); }
+nav.toc { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0; }
+nav.toc a {
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    box-shadow: 0 3px 10px rgba(28, 35, 51, .05);
+}
+nav.toc a:hover { border-color: var(--brand); color: var(--brand); }
+.card {
+    margin-top: 18px;
+    padding: 22px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: 0 8px 24px rgba(28, 35, 51, .06);
+}
+.card h2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 14px;
+    font-size: 20px;
+}
+.section-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.section-head h2 { margin: 0; }
+.pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 11px;
+    font-weight: 700;
+}
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.stat {
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fbfcff;
+}
+.stat .label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.stat .value { margin: 0; font-size: 14px; }
+pre.code {
+    margin: 0;
+    padding: 14px 16px;
+    max-height: 460px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #f7f9fd;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.muted { color: var(--muted); }
+.note { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+.notice {
+    margin-top: 18px;
+    padding: 14px 18px;
+    border: 1px solid #f3d3a7;
+    border-left: 4px solid var(--orange);
+    border-radius: 12px;
+    background: #fff8ef;
+    color: #7c3f06;
+    font-size: 14px;
+}
+.notice p { margin: 4px 0 0; }
+ul.plain { margin: 0; padding-left: 20px; font-size: 14px; }
+ul.plain li { margin: 4px 0; }
+.search { display: flex; gap: 10px; align-items: center; margin: 6px 0 4px; }
+.search input {
+    flex: 1;
+    padding: 11px 15px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fbfcff;
+    color: var(--ink);
+    font-size: 14px;
+    outline: none;
+}
+.search input:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(47, 111, 237, .14);
+}
+.prog {
+    margin-top: 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+}
+.prog-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #f8fafd;
+    border-bottom: 1px solid var(--line);
+}
+.prog-head h3 { margin: 0; font-size: 15px; }
+.count {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--brand);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+}
+.prog-snap .count { background: var(--orange); }
+.prog-flatpak_apps .count { background: var(--teal); }
+.shown { font-size: 12px; font-weight: 600; color: var(--muted); }
+.table-wrap { max-height: 380px; overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 9px 16px;
+    background: #fff;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+tbody td { padding: 8px 16px; border-bottom: 1px solid #f0f3f9; }
+tbody tr:nth-child(even) { background: #fbfcff; }
+tbody tr:hover { background: var(--brand-soft); }
+td.name { font-weight: 600; }
+td.ver { color: var(--muted); white-space: nowrap; }
+footer {
+    margin-top: 28px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+}
+@media (max-width: 760px) {
+    .stats { grid-template-columns: 1fr; }
+    .hero { flex-direction: column; align-items: flex-start; }
+}
+@media print {
+    body { background: #fff; }
+    .wrap { max-width: none; padding: 0; }
+    .hero, nav.toc, .card, .stat, .notice, .count {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .hero { box-shadow: none; }
+    nav.toc, .search { display: none; }
+    .card { box-shadow: none; break-inside: avoid; }
+    .table-wrap, pre.code { max-height: none; overflow: visible; }
+    thead th { position: static; }
+}
+"""
+
+_REPORT_JS = """
+(function () {
+    var input = document.getElementById('xray-search');
+    if (!input) { return; }
+    function apply() {
+        var term = input.value.trim().toLowerCase();
+        document.querySelectorAll('.prog').forEach(function (section) {
+            var rows = section.querySelectorAll('tbody tr');
+            var shown = 0;
+            rows.forEach(function (row) {
+                var hit = !term || row.textContent.toLowerCase().indexOf(term) !== -1;
+                row.hidden = !hit;
+                if (hit && row.querySelector('td')) { shown++; }
+            });
+            var counter = section.querySelector('.shown');
+            if (counter) { counter.textContent = shown + ' / ' + rows.length; }
+        });
+    }
+    input.addEventListener('input', apply);
+    apply();
+})();
+"""
+
+
+def build_report_html(snapshot, bios_details='', hw_details='',
+                      bios_source='', hw_source='', priv_error=''):
+    """Monta o relatório HTML completo (autocontido) do Raio-X."""
+    import html as html_lib
+    from datetime import datetime
+
+    snap = snapshot or {}
+    bios = snap.get('bios', {}) or {}
+    hardware = snap.get('hardware', {}) or {}
+    programs = snap.get('programs', {}) or {}
+    fields = bios.get('fields') or {}
+    limitations = snap.get('limitations') or []
+
+    def esc(value):
+        return html_lib.escape(str(value or ''))
+
+    def code_block(text):
+        if not text:
+            return ('<p class="muted">'
+                    + esc(i18n.t('xray.unavailable')) + '</p>')
+        return '<pre class="code">' + esc(text) + '</pre>'
+
+    product = fields.get('product_name') or fields.get('sys_vendor') or ''
+    os_name = os_pretty_name()
+    generated = datetime.now().strftime('%d/%m/%Y %H:%M')
+    meta_bits = [b for b in (product, os_name) if b]
+    meta_bits.append(i18n.t('xray.html.generated', date=generated))
+    meta = ' · '.join(meta_bits)
+
+    def program_section(key, title, icon):
+        items = programs.get(key) or []
+        rows = []
+        for name, version in items:
+            rows.append(
+                '<tr><td class="name">' + esc(name) + '</td>'
+                '<td class="ver">' + esc(version) + '</td></tr>')
+        if not rows:
+            rows.append(
+                '<tr><td colspan="2" class="muted">'
+                + esc(i18n.t('xray.empty')) + '</td></tr>')
+        return (
+            '<div class="prog prog-' + esc(key) + '">'
+            '<div class="prog-head"><h3>' + esc(icon) + ' ' + esc(title)
+            + ' <span class="count">' + str(len(items)) + '</span></h3>'
+            + '<span class="shown">' + str(len(items)) + ' / '
+            + str(len(items)) + '</span></div>'
+            '<div class="table-wrap"><table><thead><tr><th>'
+            + esc(i18n.t('xray.col_name')) + '</th><th>'
+            + esc(i18n.t('xray.col_version')) + '</th></tr></thead><tbody>'
+            + ''.join(rows) + '</tbody></table></div></div>')
+
+    runtimes = programs.get('flatpak_runtimes', 0)
+    program_html = (
+        program_section('apt', i18n.t('xray.programs.apt'), '📦')
+        + program_section('snap', i18n.t('xray.programs.snap'), '🟠')
+        + program_section('flatpak_apps', i18n.t('xray.programs.flatpak'), '🫐')
+    )
+
+    notice = ''
+    if priv_error:
+        notice = (
+            '<div class="notice"><strong>'
+            + esc(i18n.t('xray.html.priv_missing'))
+            + '</strong><p>'
+            + esc(i18n.t('xray.html.priv_missing_body', detail=priv_error))
+            + '</p></div>')
+
+    limitations_html = ''
+    if limitations:
+        items = ''.join('<li>' + esc(item) + '</li>' for item in limitations)
+        limitations_html = (
+            '<section class="card" id="observacoes">'
+            '<h2>📝 ' + esc(i18n.t('xray.html.notes')) + '</h2>'
+            '<ul class="plain">' + items + '</ul></section>')
+
+    total_programs = sum(
+        len(programs.get(key) or [])
+        for key in ('apt', 'snap', 'flatpak_apps'))
+
+    summary_bios = bios.get('summary') or i18n.t('xray.unavailable')
+    summary_hw = hardware.get('summary') or i18n.t('xray.unavailable')
+    summary_prog = programs.get('summary') or i18n.t(
+        'xray.html.programs_total', n=total_programs)
+
+    doc = (
+        '<!doctype html>\n'
+        '<html lang="' + esc(i18n.get_language().replace('_', '-')) + '">\n'
+        '<head>\n<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
+        '<title>' + esc(i18n.t('xray.title')) + ' · Cleanix</title>\n'
+        '<style>' + _REPORT_CSS + '</style>\n</head>\n<body>\n'
+        '<div class="wrap">\n'
+        '<header class="hero"><div class="hero-icon">🖥️</div>'
+        '<div><p class="eyebrow">Cleanix</p><h1>'
+        + esc(i18n.t('xray.title')) + '</h1><p class="meta">' + esc(meta)
+        + '</p></div></header>\n'
+        '<nav class="toc">'
+        '<a href="#resumo">🔎 ' + esc(i18n.t('xray.summary')) + '</a>'
+        '<a href="#bios">🧩 ' + esc(i18n.t('xray.bios')) + '</a>'
+        '<a href="#hardware">⚙️ ' + esc(i18n.t('xray.hardware')) + '</a>'
+        '<a href="#programas">📦 ' + esc(i18n.t('xray.programs')) + '</a>'
+        '</nav>\n'
+        + notice + '\n'
+        '<section class="card" id="resumo">'
+        '<h2>🔎 ' + esc(i18n.t('xray.summary')) + '</h2>'
+        '<div class="stats">'
+        '<div class="stat"><span class="label">🧩 '
+        + esc(i18n.t('xray.bios')) + '</span><p class="value">'
+        + esc(summary_bios) + '</p></div>'
+        '<div class="stat"><span class="label">⚙️ '
+        + esc(i18n.t('xray.hardware')) + '</span><p class="value">'
+        + esc(summary_hw) + '</p></div>'
+        '<div class="stat"><span class="label">📦 '
+        + esc(i18n.t('xray.programs')) + '</span><p class="value">'
+        + esc(summary_prog) + '</p></div>'
+        '</div></section>\n'
+        '<section class="card" id="bios">'
+        '<div class="section-head"><h2>🧩 ' + esc(i18n.t('xray.bios'))
+        + '</h2><span class="pill">'
+        + esc(bios_source or i18n.t('xray.source_unprivileged'))
+        + '</span></div>' + code_block(bios_details) + '</section>\n'
+        '<section class="card" id="hardware">'
+        '<div class="section-head"><h2>⚙️ ' + esc(i18n.t('xray.hardware'))
+        + '</h2><span class="pill">'
+        + esc(hw_source or i18n.t('xray.source_unprivileged'))
+        + '</span></div>' + code_block(hw_details) + '</section>\n'
+        '<section class="card" id="programas">'
+        '<h2>📦 ' + esc(i18n.t('xray.programs')) + '</h2>'
+        '<p class="note">'
+        + esc(i18n.t('xray.programs.runtimes', n=runtimes)) + '</p>'
+        '<div class="search"><input id="xray-search" type="search" '
+        'placeholder="' + esc(i18n.t('xray.html.search')) + '"></div>'
+        + program_html + '</section>\n'
+        + limitations_html
+        + '\n<footer>'
+        + esc(i18n.t('xray.html.footer')) + ' · Cleanix</footer>\n'
+        '</div>\n<script>' + _REPORT_JS + '</script>\n</body>\n</html>\n')
+    return doc
