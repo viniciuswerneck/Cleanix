@@ -243,7 +243,7 @@ class _ActionDialog(Gtk.Window):
         self.set_title(heading)
         self.set_modal(True)
         self.set_transient_for(parent)
-        self.set_default_size(980, -1)
+        self.set_default_size(1080, -1)
         self.add_css_class('dialog')
 
         root = _vbox(12)
@@ -263,6 +263,8 @@ class _ActionDialog(Gtk.Window):
         flow.set_column_spacing(12)
         flow.set_row_spacing(12)
         flow.set_homogeneous(True)
+        flow.set_halign(Gtk.Align.FILL)
+        flow.set_hexpand(True)
         flow.set_valign(Gtk.Align.START)
 
         for action in self.actions:
