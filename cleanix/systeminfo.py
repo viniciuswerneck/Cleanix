@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import os
+import re
+import shutil
 from dataclasses import dataclass
 
 from . import i18n
@@ -171,9 +173,200 @@ def sample_cpu(prev: tuple[int, int] | None) -> tuple[float, tuple[int, int]]:
     return (max(0.0, min(100.0, percent)), current)
 
 
+
+
+def _scan_disks() -> list[dict]:
+    """Lista discos e partições com tamanho e uso.
+
+    Inclui discos físicos (mesmo sem montagem) e partições montadas.
+    Retorna lista de dicts com name, size_total, size_used, size_free,
+    pct_used, mounted, mount_point.
+    """
+    import json
+    import subprocess
+
+    disks: list[dict] = []
+    seen: set[str] = set()
+
+    def _add(entry: dict) -> None:
+        key = (entry.get('name'), entry.get('mount_point') or '')
+        if key in seen:
+            return
+        seen.add(key)
+        disks.append(entry)
+
+    def _df_usage(mount: str) -> tuple[int, int, int, int] | None:
+        try:
+            out = subprocess.check_output(
+                ['df', '-B1', mount], text=True, stderr=subprocess.DEVNULL
+            ).strip().splitlines()
+            if len(out) < 2:
+                return None
+            parts = out[1].split()
+            if len(parts) < 3:
+                return None
+            total = int(parts[1])
+            used = int(parts[2])
+            free = total - used
+            pct = round(100.0 * used / total) if total > 0 else 0
+            return total, used, free, pct
+        except Exception:
+            return None
+
+    try:
+        lsblk_out = subprocess.check_output(
+            ['lsblk', '-Jb', '-o', 'NAME,TYPE,SIZE,MOUNTPOINT,MODEL'],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        data = json.loads(lsblk_out)
+        for device in data.get('blockdevices', []):
+            if device.get('type') != 'disk':
+                continue
+            name = device.get('name') or 'disco'
+            model = (device.get('model') or '').strip() or name
+            total = int(device.get('size') or 0)
+            mount = device.get('mountpoint')
+            # aggregate usage from mounted children when disk itself not mounted
+            children = device.get('children') or []
+            mounted_children = [c for c in children if c.get('mountpoint')]
+            usage = _df_usage(mount) if mount else None
+            agg_used = 0
+            agg_total = 0
+            for c in mounted_children:
+                cu = _df_usage(c.get('mountpoint'))
+                if cu:
+                    agg_total += cu[0]
+                    agg_used += cu[1]
+            if usage:
+                t, u, f, p = usage
+                _add({
+                    'name': name, 'model': model, 'type': 'disk',
+                    'size_total': t, 'size_used': u, 'size_free': f,
+                    'pct_used': p, 'mounted': True, 'mount_point': mount,
+                })
+            else:
+                if agg_total > 0:
+                    free = max(0, agg_total - agg_used)
+                    pct = round(100.0 * agg_used / agg_total)
+                    _add({
+                        'name': name, 'model': model, 'type': 'disk',
+                        'size_total': total, 'size_used': agg_used,
+                        'size_free': max(0, total - agg_used),
+                        'pct_used': pct, 'mounted': False, 'mount_point': '',
+                        'has_mounted_parts': True,
+                    })
+                else:
+                    _add({
+                        'name': name, 'model': model, 'type': 'disk',
+                        'size_total': total, 'size_used': 0, 'size_free': total,
+                        'pct_used': 0, 'mounted': False, 'mount_point': '',
+                    })
+
+            for child in children:
+                if child.get('type') not in ('part', 'lvm', 'crypt'):
+                    continue
+                cname = child.get('name') or 'partição'
+                cmount = child.get('mountpoint')
+                ctotal = int(child.get('size') or 0)
+                cusage = _df_usage(cmount) if cmount else None
+                if cusage:
+                    t, u, f, p = cusage
+                    _add({
+                        'name': cname, 'model': model, 'type': child.get('type'),
+                        'size_total': t, 'size_used': u, 'size_free': f,
+                        'pct_used': p, 'mounted': True, 'mount_point': cmount,
+                        'parent': name,
+                    })
+                elif ctotal > 0:
+                    _add({
+                        'name': cname, 'model': model, 'type': child.get('type'),
+                        'size_total': ctotal, 'size_used': 0, 'size_free': ctotal,
+                        'pct_used': 0, 'mounted': False, 'mount_point': cmount or '',
+                        'parent': name,
+                    })
+    except Exception:
+        pass
+
+    return disks
+
 def health_state(percent_free: float) -> str:
     if percent_free >= 20:
         return "ok"
     if percent_free >= 10:
         return "warn"
     return "bad"
+
+
+def smartctl_available() -> bool:
+    return shutil.which('smartctl') is not None
+
+
+def physical_disks_for_smart(disks: list[dict] | None = None) -> list[dict]:
+    if disks is None:
+        disks = _scan_disks()
+    out = []
+    for d in disks:
+        name = d.get('name') or ''
+        if d.get('type') != 'disk':
+            continue
+        if (d.get('size_total') or 0) <= 0:
+            continue
+        if name.startswith(('loop', 'zram', 'ram')):
+            continue
+        out.append(d)
+    return out
+
+
+_CRITICAL_ATTRS = {
+    'Reallocated_Sector_Ct',
+    'Current_Pending_Sector',
+    'Offline_Uncorrectable',
+    'Reported_Uncorrect',
+    'Reallocated_Event_Count',
+}
+
+
+def parse_smartctl(text: str) -> dict:
+    overall = 'unknown'
+    overall_text = ''
+    m = re.search(
+        r'(SMART overall-health self-assessment test result:\s*(PASSED|FAILED)!?)',
+        text, re.IGNORECASE,
+    )
+    if m:
+        overall_text = m.group(1).strip()
+        overall = 'passed' if m.group(2).upper() == 'PASSED' else 'failed'
+
+    attributes = []
+    for line in text.splitlines():
+        am = re.match(r'^\s*(\d+)\s+(\S+)\s+(.*)$', line)
+        if not am:
+            continue
+        try:
+            int(am.group(1))
+        except ValueError:
+            continue
+        name = am.group(2)
+        rest = am.group(3).strip()
+        parts = rest.split()
+        raw = parts[-1] if parts else ''
+        # common format has RAW_VALUE as last column (may be multi-token rarely)
+        if len(parts) >= 6:
+            raw = ' '.join(parts[5:])
+        value = parts[0] if parts else ''
+        attributes.append({
+            'name': name,
+            'value': value,
+            'raw': raw,
+            'critical': name in _CRITICAL_ATTRS,
+        })
+    if len(attributes) > 40:
+        attributes = attributes[:40]
+
+    return {
+        'overall': overall,
+        'overall_text': overall_text,
+        'attributes': attributes,
+        'notes': [],
+    }
+

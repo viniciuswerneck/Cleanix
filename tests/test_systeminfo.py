@@ -110,3 +110,43 @@ class DistroTest(unittest.TestCase):
 
     def test_info_missing_file(self):
         self.assertEqual(si.distro_info('/nao/existe'), ('Linux', ''))
+
+
+class SmartParseTest(unittest.TestCase):
+    PASSED = """
+=== START OF READ SMART DATA SECTION ===
+SMART overall-health self-assessment test result: PASSED
+
+ID# ATTRIBUTE_NAME          VALUE WORST THRESH TYPE      UPDATED  WHEN_FAILED RAW_VALUE
+  5 Reallocated_Sector_Ct   100   100   010    Pre-fail  Always       -       0
+197 Current_Pending_Sector  100   100   000    Old_age   Always       -       0
+198 Offline_Uncorrectable   100   100   000    Old_age   Always       -       0
+"""
+    FAILED = "SMART overall-health self-assessment test result: FAILED!\n"
+    UNKNOWN = "some output without health line\n"
+
+    def test_passed_and_key_attributes(self):
+        r = si.parse_smartctl(self.PASSED)
+        self.assertEqual(r['overall'], 'passed')
+        names = [a['name'] for a in r['attributes']]
+        self.assertIn('Reallocated_Sector_Ct', names)
+
+    def test_failed(self):
+        r = si.parse_smartctl(self.FAILED)
+        self.assertEqual(r['overall'], 'failed')
+
+    def test_unknown(self):
+        r = si.parse_smartctl(self.UNKNOWN)
+        self.assertEqual(r['overall'], 'unknown')
+
+
+class PhysicalDisksForSmartTest(unittest.TestCase):
+    def test_filters_physical_disks(self):
+        disks = [
+            {'name': 'sda', 'type': 'disk', 'size_total': 100},
+            {'name': 'sda1', 'type': 'part', 'size_total': 50},
+            {'name': 'zram0', 'type': 'disk', 'size_total': 10},
+            {'name': 'loop0', 'type': 'disk', 'size_total': 10},
+        ]
+        out = si.physical_disks_for_smart(disks)
+        self.assertEqual([d['name'] for d in out], ['sda'])
