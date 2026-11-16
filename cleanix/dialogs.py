@@ -11,7 +11,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gdk, GLib, Gtk, Pango
 
-from . import autostart, history, memory, settings, systeminfo
+from . import autostart, history, i18n, memory, settings, systeminfo
 from .execution import Result, execute_command
 
 log = logging.getLogger(__name__)
@@ -93,6 +93,15 @@ def _limit(text, size=1500):
     if len(text) <= size:
         return text
     return text[:size] + '\n…'
+
+
+def help_about_text() -> tuple[str, str]:
+    """Título e corpo do diálogo único de Ajuda e Sobre."""
+    body = i18n.t('help.body')
+    body += '\n\n' + i18n.t('about.version')
+    body += '\n' + i18n.t('about.distro',
+                          name=systeminfo.distro_name())
+    return i18n.t('help.title'), body
 
 
 def startup_content_limit(screen_height, reserved=320):

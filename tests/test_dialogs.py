@@ -1,6 +1,6 @@
 import unittest
 
-from cleanix import dialogs
+from cleanix import dialogs, i18n
 
 
 class ExecuteCommandTest(unittest.TestCase):
@@ -63,6 +63,23 @@ class ActionListsTest(unittest.TestCase):
             for field in ('label', 'description', 'detail', 'command',
                           'as_root'):
                 self.assertIn(field, action)
+
+
+class HelpAboutTextTest(unittest.TestCase):
+    def tearDown(self):
+        i18n.set_language('pt_BR')
+
+    def test_portuguese_has_safety_and_version(self):
+        i18n.set_language('pt_BR')
+        title, body = dialogs.help_about_text()
+        self.assertEqual(title, 'Ajuda e Sobre')
+        self.assertIn('Cleanix 1.0', body)
+        self.assertIn('/tmp', body)
+
+    def test_english(self):
+        i18n.set_language('en')
+        title, _ = dialogs.help_about_text()
+        self.assertEqual(title, 'Help & About')
 
 
 class StartupLayoutTest(unittest.TestCase):

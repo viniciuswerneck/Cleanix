@@ -12,7 +12,8 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, Pango
 
-from . import charts, dialogs, history, memory, scanner, settings, systeminfo
+from . import (charts, dialogs, history, i18n, memory, scanner, settings,
+              systeminfo)
 
 CATEGORY_COLORS = ('#3295F5', '#20C957', '#F4510B', '#914CF5', '#F5A623')
 HEALTH_TEXTS = {
@@ -190,8 +191,8 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
         names = vbox(0)
         names.set_valign(Gtk.Align.CENTER)
-        names.append(txt('Cleanix', 'app-name'))
-        names.append(txt('Seu sistema sempre em ótima forma', 'app-sub'))
+        names.append(txt(i18n.t('app.name'), 'app-name'))
+        names.append(txt(i18n.t('app.subtitle'), 'app-sub'))
         bar.append(names)
 
         spacer = Gtk.Box()
@@ -228,16 +229,17 @@ class CleanixWindow(Gtk.ApplicationWindow):
         side.set_size_request(228, -1)
 
         items = [
-            ('Início', 'go-home-symbolic', '', True, None),
-            ('Cleaner', 'edit-clear-symbolic', '(Limpeza)', False,
+            (i18n.t('sidebar.home'), 'go-home-symbolic', True, None),
+            (i18n.t('sidebar.cleanup'), 'edit-clear-symbolic', False,
              lambda *_: self._open_details()),
-            ('Optimizer', 'utilities-system-monitor-symbolic', '(Otimização)',
-             False, lambda *_: self._open_optimizer()),
-            ('Adjustments', 'emblem-system-symbolic', '(Ajustes)', False,
+            (i18n.t('sidebar.optimize'),
+             'utilities-system-monitor-symbolic', False,
+             lambda *_: self._open_optimizer()),
+            (i18n.t('sidebar.adjustments'), 'emblem-system-symbolic', False,
              lambda *_: self._open_adjustments()),
         ]
-        for name, icon, sub, active, on_click in items:
-            side.append(self._side_item(name, icon, sub, active, on_click))
+        for name, icon, active, on_click in items:
+            side.append(self._side_item(name, icon, active, on_click))
 
         sep = Gtk.Separator()
         sep.add_css_class('side-sep')
@@ -245,28 +247,31 @@ class CleanixWindow(Gtk.ApplicationWindow):
         sep.set_margin_bottom(8)
         side.append(sep)
 
-        for name, icon, sub, active, on_click in [
-            ('Histórico', 'document-open-symbolic', '', False,
+        for name, icon, on_click in [
+            (i18n.t('sidebar.history'), 'document-open-symbolic',
              lambda *_: self._open_history()),
-            ('Sobre', 'help-about-symbolic', '', False,
-             lambda *_: self._show_about()),
+            (i18n.t('sidebar.help_about'), 'help-about-symbolic',
+             lambda *_: self._show_help_about()),
         ]:
-            side.append(self._side_item(name, icon, sub, active, on_click))
+            side.append(self._side_item(name, icon, False, on_click))
 
         expand = Gtk.Box()
         expand.set_vexpand(True)
         side.append(expand)
 
+        name, version = systeminfo.distro_info()
         ubuntu = vbox(2)
         ubuntu.set_margin_top(8)
         ubuntu.set_halign(Gtk.Align.CENTER)
         ubuntu.append(emoji('⬤', 'ubuntu-logo'))
-        ubuntu.append(txt('Ubuntu', 'ubuntu-name', halign=Gtk.Align.CENTER))
-        ubuntu.append(txt('22.04 LTS', 'ubuntu-ver', halign=Gtk.Align.CENTER))
+        ubuntu.append(txt(name, 'ubuntu-name', halign=Gtk.Align.CENTER))
+        if version:
+            ubuntu.append(txt(version, 'ubuntu-ver',
+                              halign=Gtk.Align.CENTER))
         side.append(ubuntu)
         return side
 
-    def _side_item(self, name, icon, sub, active, on_click=None):
+    def _side_item(self, name, icon, active, on_click=None):
         btn = Gtk.Button()
         btn.add_css_class('side-item')
         if active:
@@ -278,8 +283,6 @@ class CleanixWindow(Gtk.ApplicationWindow):
         labels = vbox(0)
         labels.set_valign(Gtk.Align.CENTER)
         labels.append(txt(name, 'side-title'))
-        if sub:
-            labels.append(txt(sub, 'side-sub'))
         row.append(labels)
 
         btn.set_child(row)
@@ -658,7 +661,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         bar.add_css_class('statusbar')
 
         bar.append(markup('<span foreground="#25CE60">✓</span>'))
-        self.status_text = txt('Pronto para ajudar seu sistema!', 'status-text')
+        self.status_text = txt(i18n.t('status.ready'), 'status-text')
         bar.append(self.status_text)
 
         spacer = Gtk.Box()
@@ -669,19 +672,10 @@ class CleanixWindow(Gtk.ApplicationWindow):
         cfg.add_css_class('status-btn')
         cfg_c = hbox(6)
         cfg_c.append(emoji('⚙️'))
-        cfg_c.append(txt('Configurações'))
+        cfg_c.append(txt(i18n.t('status.settings')))
         cfg.set_child(cfg_c)
         cfg.connect('clicked', lambda *_: self._show_settings())
         bar.append(cfg)
-
-        help_b = Gtk.Button()
-        help_b.add_css_class('status-btn')
-        help_c = hbox(6)
-        help_c.append(emoji('❓'))
-        help_c.append(txt('Ajuda'))
-        help_b.set_child(help_c)
-        help_b.connect('clicked', lambda *_: self._show_help())
-        bar.append(help_b)
         return bar
 
     # ---- varredura ----
@@ -1059,16 +1053,6 @@ class CleanixWindow(Gtk.ApplicationWindow):
         dialog = dialogs.SettingsDialog(self)
         dialog.present()
 
-    def _show_help(self):
-        dialogs.show_info(
-            self, 'Ajuda',
-            'Use "Limpeza Inteligente" para revisar as categorias e remover '
-            'arquivos temporários com segurança.\n\n'
-            'Nada fora da sua pasta pessoal e de /tmp é apagado, e as pastas '
-            'raiz nunca são removidas.')
-
-    def _show_about(self):
-        dialogs.show_info(
-            self, 'Sobre o Cleanix',
-            'Cleanix 1.0\nLimpeza segura para Ubuntu, feita com GTK4.\n\n'
-            'Seu sistema sempre em ótima forma.')
+    def _show_help_about(self):
+        title, body = dialogs.help_about_text()
+        dialogs.show_info(self, title, body)

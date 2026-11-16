@@ -5,5 +5,17 @@
   "common.cancel": "Cancelar",
   "date.pattern": "%d/%m/%Y %H:%M",
   "files.removed.one": "{n} archivo eliminado",
-  "files.removed.other": "{n} archivos eliminados"
+  "files.removed.other": "{n} archivos eliminados",
+  "sidebar.home": "Inicio",
+  "sidebar.cleanup": "Limpieza",
+  "sidebar.optimize": "Optimización",
+  "sidebar.adjustments": "Ajustes",
+  "sidebar.history": "Historial",
+  "sidebar.help_about": "Ayuda y Acerca de",
+  "status.ready": "¡Listo para ayudar a tu sistema!",
+  "help.title": "Ayuda y Acerca de",
+  "help.body": "Usa \"Limpieza\" para revisar las categorías y eliminar archivos temporales de forma segura.\n\nNada fuera de tu carpeta personal y de /tmp se elimina, y las carpetas raíz nunca se borran.",
+  "about.version": "Cleanix 1.0",
+  "about.distro": "Sistema: {name}",
+  "status.settings": "Configuración"
 }

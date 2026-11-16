@@ -5,5 +5,17 @@
   "common.cancel": "Cancel",
   "date.pattern": "%m/%d/%Y %H:%M",
   "files.removed.one": "{n} file removed",
-  "files.removed.other": "{n} files removed"
+  "files.removed.other": "{n} files removed",
+  "sidebar.home": "Home",
+  "sidebar.cleanup": "Cleanup",
+  "sidebar.optimize": "Optimization",
+  "sidebar.adjustments": "Adjustments",
+  "sidebar.history": "History",
+  "sidebar.help_about": "Help & About",
+  "status.ready": "Ready to help your system!",
+  "help.title": "Help & About",
+  "help.body": "Use \"Cleanup\" to review the categories and safely remove temporary files.\n\nNothing outside your home folder and /tmp is deleted, and root folders are never removed.",
+  "about.version": "Cleanix 1.0",
+  "about.distro": "System: {name}",
+  "status.settings": "Settings"
 }

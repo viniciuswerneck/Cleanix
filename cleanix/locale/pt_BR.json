@@ -5,5 +5,17 @@
   "common.cancel": "Cancelar",
   "date.pattern": "%d/%m/%Y %H:%M",
   "files.removed.one": "{n} arquivo removido",
-  "files.removed.other": "{n} arquivos removidos"
+  "files.removed.other": "{n} arquivos removidos",
+  "sidebar.home": "Início",
+  "sidebar.cleanup": "Limpeza",
+  "sidebar.optimize": "Otimização",
+  "sidebar.adjustments": "Ajustes",
+  "sidebar.history": "Histórico",
+  "sidebar.help_about": "Ajuda e Sobre",
+  "status.ready": "Pronto para ajudar seu sistema!",
+  "help.title": "Ajuda e Sobre",
+  "help.body": "Use \"Limpeza\" para revisar as categorias e remover arquivos temporários com segurança.\n\nNada fora da sua pasta pessoal e de /tmp é apagado, e as pastas raiz nunca são removidas.",
+  "about.version": "Cleanix 1.0",
+  "about.distro": "Sistema: {name}",
+  "status.settings": "Configurações"
 }
