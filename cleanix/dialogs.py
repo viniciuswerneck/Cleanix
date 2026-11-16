@@ -1146,6 +1146,10 @@ class XRayDialog(Gtk.Window):
         self._priv_bios = False
         self._priv_hw = False
         self._prog_lists = {'apt': [], 'snap': [], 'flatpak_apps': []}
+        self._bios_detail_text = ''
+        self._hw_detail_text = ''
+        self._bios_source_text = ''
+        self._hw_source_text = '' 
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -1240,10 +1244,21 @@ class XRayDialog(Gtk.Window):
         sep.set_margin_bottom(6)
         root.append(sep)
 
+        footer = _hbox(10)
         close = Gtk.Button(label=i18n.t('common.close'))
         close.add_css_class('btn-secondary')
         close.connect('clicked', lambda *_: self.close())
-        root.append(close)
+        footer.append(close)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        footer.append(spacer)
+
+        self.export_btn = Gtk.Button(label=i18n.t('xray.export_html'))
+        self.export_btn.add_css_class('btn-green')
+        self.export_btn.connect('clicked', lambda *_: self._export_html())
+        footer.append(self.export_btn)
+        root.append(footer)
 
         scroller.set_child(root)
         self.set_child(scroller)
@@ -1334,11 +1349,15 @@ class XRayDialog(Gtk.Window):
         self._prog_lists['flatpak_apps'] = prog.get('flatpak_apps') or []
         # update details if not replaced by privileged
         if not self._priv_bios:
-            self._set_text_area(self.bios_details, bios.get('details') or i18n.t('xray.unavailable'))
-            self.bios_source.set_text(i18n.t('xray.source_unprivileged'))
+            self._bios_detail_text = bios.get('details') or i18n.t('xray.unavailable')
+            self._bios_source_text = i18n.t('xray.source_unprivileged')
+            self._set_text_area(self.bios_details, self._bios_detail_text)
+            self.bios_source.set_text(self._bios_source_text)
         if not self._priv_hw:
-            self._set_text_area(self.hw_details, hw.get('details') or i18n.t('xray.unavailable'))
-            self.hw_source.set_text(i18n.t('xray.source_unprivileged'))
+            self._hw_detail_text = hw.get('details') or i18n.t('xray.unavailable')
+            self._hw_source_text = i18n.t('xray.source_unprivileged')
+            self._set_text_area(self.hw_details, self._hw_detail_text)
+            self.hw_source.set_text(self._hw_source_text)
         self.prog_note.set_text(i18n.t('xray.programs.runtimes', n=rt))
         for key in self.prog_sections:
             self._update_prog_list(key)
@@ -1382,8 +1401,10 @@ class XRayDialog(Gtk.Window):
         self.status.set_text('')
         if res.get('ok'):
             self._priv_bios = True
-            self._set_text_area(self.bios_details, res.get('details') or i18n.t('xray.unavailable'))
-            self.bios_source.set_text(i18n.t('xray.source_privileged'))
+            self._bios_detail_text = res.get('details') or i18n.t('xray.unavailable')
+            self._bios_source_text = i18n.t('xray.source_privileged')
+            self._set_text_area(self.bios_details, self._bios_detail_text)
+            self.bios_source.set_text(self._bios_source_text)
         else:
             err = res.get('error') or i18n.t('xray.unavailable')
             self.bios_source.set_text(i18n.t('xray.source_unprivileged'))
@@ -1411,8 +1432,10 @@ class XRayDialog(Gtk.Window):
         self.status.set_text('')
         if res.get('ok'):
             self._priv_hw = True
-            self._set_text_area(self.hw_details, res.get('details') or i18n.t('xray.unavailable'))
-            self.hw_source.set_text(i18n.t('xray.source_privileged'))
+            self._hw_detail_text = res.get('details') or i18n.t('xray.unavailable')
+            self._hw_source_text = i18n.t('xray.source_privileged')
+            self._set_text_area(self.hw_details, self._hw_detail_text)
+            self.hw_source.set_text(self._hw_source_text)
         else:
             err = res.get('error') or i18n.t('xray.unavailable')
             self.hw_source.set_text(i18n.t('xray.source_unprivileged'))
@@ -1439,3 +1462,110 @@ class XRayDialog(Gtk.Window):
             self._set_text_area(sec['area'], i18n.t('xray.empty'))
         sec['showing'].set_text(
             i18n.t('xray.showing', n=len(show), m=total))
+
+
+    def _export_html(self):
+        dialog = Gtk.FileDialog()
+        dialog.set_title(i18n.t('xray.export_title'))
+        dialog.set_initial_name(i18n.t('xray.export_filename'))
+        try:
+            dialog.save(self, None, self._on_export_response)
+        except Exception:
+            # fallback: save to home
+            self._write_export(Path.home() / i18n.t('xray.export_filename'))
+
+    def _on_export_response(self, dialog, result):
+        try:
+            file = dialog.save_finish(result)
+        except Exception:
+            return
+        if file is None:
+            return
+        path = file.get_path()
+        if not path:
+            return
+        self._write_export(Path(path))
+
+    def _write_export(self, path):
+        try:
+            html = self._build_export_html()
+            Path(path).write_text(html, encoding='utf-8')
+            show_info(self, i18n.t('xray.export_done_title'),
+                      i18n.t('xray.export_done_body', path=str(path)))
+        except Exception as exc:
+            show_info(self, i18n.t('xray.export_error_title'),
+                      i18n.t('xray.export_error_body', detail=str(exc)))
+
+    def _build_export_html(self):
+        import html as _html
+        snap = self._snapshot or {}
+        bios = snap.get('bios', {})
+        hw = snap.get('hardware', {})
+        prog = snap.get('programs', {})
+        title = i18n.t('xray.title')
+        now = i18n.format_datetime_now() if hasattr(i18n, 'format_datetime_now') else ''
+        try:
+            from datetime import datetime
+            if not now:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M')
+        except Exception:
+            pass
+
+        def esc(s):
+            return _html.escape(str(s or ''))
+
+        def pre(s):
+            return '<pre>' + esc(s) + '</pre>' if s else '<p class="muted">' + esc(i18n.t('xray.unavailable')) + '</p>'
+
+        def list_section(name, items):
+            rows = ''.join(f'<tr><td>{esc(n)}</td><td>{esc(v)}</td></tr>' for n, v in (items or []))
+            if not rows:
+                rows = f'<tr><td colspan="2" class="muted">{esc(i18n.t("xray.empty"))}</td></tr>'
+            return f'<h3>{esc(name)} ({len(items or [])})</h3><table><thead><tr><th>{esc(i18n.t("xray.col_name"))}</th><th>{esc(i18n.t("xray.col_version"))}</th></tr></thead><tbody>{rows}</tbody></table>'
+
+        rt = prog.get('flatpak_runtimes', 0)
+        programs_html = (
+            list_section(i18n.t('xray.programs.apt'), prog.get('apt') or []) +
+            list_section(i18n.t('xray.programs.snap'), prog.get('snap') or []) +
+            list_section(i18n.t('xray.programs.flatpak'), prog.get('flatpak_apps') or []) +
+            f'<p><em>{esc(i18n.t("xray.programs.runtimes", n=rt))}</em></p>'
+        )
+
+        html_doc = f"""<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(title)}</title>
+<style>
+body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif;margin:24px;color:#1f2937;background:#f7f7fb;}}
+h1{{margin:0 0 4px 0}} .sub{{color:#555;margin:0 0 20px 0}}
+.card{{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:14px 0}}
+h2{{margin:0 0 8px 0;font-size:20px}} h3{{margin:16px 0 6px 0}}
+pre{{white-space:pre-wrap;word-break:break-word;background:#f3f4f6;border-radius:8px;padding:12px;font-size:13px;line-height:1.45}}
+table{{width:100%;border-collapse:collapse;font-size:13px}} th,td{{border-bottom:1px solid #eee;padding:6px 8px;text-align:left;vertical-align:top}}
+th{{background:#fafafa}} .muted{{color:#777}} .src{{color:#2563eb;font-size:13px;margin:0 0 8px 0}}
+</style>
+</head>
+<body>
+<h1>{esc(title)}</h1>
+<p class="sub">{esc(now)}</p>
+<div class="card"><h2>{esc(i18n.t('xray.summary'))}</h2>
+<p><strong>{esc(i18n.t('xray.bios'))}:</strong> {esc(bios.get('summary') or i18n.t('xray.unavailable'))}</p>
+<p><strong>{esc(i18n.t('xray.hardware'))}:</strong> {esc(hw.get('summary') or i18n.t('xray.unavailable'))}</p>
+<p><strong>{esc(i18n.t('xray.programs'))}:</strong> {esc(prog.get('summary') or i18n.t('xray.unavailable'))}</p>
+</div>
+<div class="card"><h2>{esc(i18n.t('xray.bios'))}</h2>
+<p class="src">{esc(self._bios_source_text or i18n.t('xray.source_unprivileged'))}</p>
+{pre(self._bios_detail_text or bios.get('details'))}
+</div>
+<div class="card"><h2>{esc(i18n.t('xray.hardware'))}</h2>
+<p class="src">{esc(self._hw_source_text or i18n.t('xray.source_unprivileged'))}</p>
+{pre(self._hw_detail_text or hw.get('details'))}
+</div>
+<div class="card"><h2>{esc(i18n.t('xray.programs'))}</h2>
+{programs_html}
+</div>
+</body></html>"""
+        return html_doc
+
