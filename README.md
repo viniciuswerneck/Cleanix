@@ -181,6 +181,7 @@ reutilizados.
 - [x] Dados reais do sistema (disco, RAM, CPU) e gráficos atualizáveis
 - [x] Listagem de discos conectados/partições na tela inicial, com atualização
 - [x] Verificação de saúde SMART dos discos (com instalação assistida do smartmontools)
+- [x] Raio-X da máquina (BIOS, hardware e programas instalados)
 - [x] Limpeza real com confirmação, relatório e histórico
 - [x] Cache do APT marcável no Cleaner, com senha na hora de limpar
 - [x] Otimizador com ações reais (APT, journal, fstrim, RAM, Startup Apps)
