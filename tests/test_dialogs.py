@@ -27,6 +27,8 @@ class ExecuteCommandTest(unittest.TestCase):
 
     def test_root_commands_use_pkexec_without_sudo(self):
         for action in dialogs.OPTIMIZER_ACTIONS:
+            if 'command' not in action:
+                continue
             command = action['command']
             self.assertTrue(command)
             self.assertNotIn('sudo', command)
@@ -42,7 +44,8 @@ class ActionListsTest(unittest.TestCase):
 
     def test_optimizer_commands_need_root(self):
         for action in dialogs.OPTIMIZER_ACTIONS:
-            self.assertTrue(action['as_root'])
+            if 'command' in action:
+                self.assertTrue(action['as_root'])
 
     def test_optimizer_has_startup_apps_page(self):
         actions = dialogs.OptimizerDialog.actions
@@ -63,17 +66,23 @@ class ActionListsTest(unittest.TestCase):
         self.assertNotIn('as_root', memory)
 
     def test_optimizer_labels_are_plain_language(self):
-        self.assertEqual(i18n.t('optimizer.apt.label'),
+        self.assertEqual(i18n.t('optimizer.clean.label'),
                          'Limpar cache do APT')
         self.assertEqual(i18n.t('optimizer.journal.label'),
                          'Limpar logs antigos')
         self.assertEqual(i18n.t('optimizer.fstrim.label'), 'Otimizar SSD')
+        self.assertEqual(i18n.t('optimizer.autoremove.title'),
+                         'Pacotes não necessários (APT)')
 
     def test_actions_have_all_fields(self):
         for action in dialogs.OPTIMIZER_ACTIONS:
-            for field in ('label_key', 'description_key', 'detail_key',
-                          'command', 'as_root'):
-                self.assertIn(field, action)
+            self.assertIn('label_key', action)
+            self.assertIn('description_key', action)
+            if action.get('dialog') is not None:
+                self.assertNotIn('command', action)
+            else:
+                for field in ('detail_key', 'command', 'as_root'):
+                    self.assertIn(field, action)
 
     def test_action_keys_exist_in_every_catalog(self):
         actions = list(dialogs.OPTIMIZER_ACTIONS

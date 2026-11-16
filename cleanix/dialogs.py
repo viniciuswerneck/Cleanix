@@ -12,7 +12,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import (adjustments, autostart, history, i18n, memory, settings,
+from . import (adjustments, autostart, history, i18n, memory, optimizer, settings,
                smart_history, systeminfo, xray)
 from .execution import Result, execute_command
 import re
@@ -333,12 +333,350 @@ class _ActionDialog(Gtk.Window):
         return GLib.SOURCE_REMOVE
 
 
+
+class _PreviewCleanupDialog(Gtk.Window):
+    title_key = ''
+    subtitle_key = ''
+    unavailable_key = ''
+
+    def __init__(self, parent):
+        super().__init__()
+        self.set_title(i18n.t(self.title_key))
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(560, 420)
+        self.add_css_class('dialog')
+
+        self._items = []
+        self._data = {}
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+
+        root.append(_txt(i18n.t(self.title_key), 'dialog-title'))
+        if self.subtitle_key:
+            root.append(_txt(i18n.t(self.subtitle_key), 'muted', wrap=True))
+
+        self.status = _txt(i18n.t('common.loading') if hasattr(i18n, 't') else '...', 'muted', wrap=True)
+        root.append(self.status)
+
+        self.summary_label = _txt('', 'cat-name', wrap=True)
+        self.summary_label.set_visible(False)
+        root.append(self.summary_label)
+
+        self.area = self._make_text_area(180)
+        root.append(self.area['scroll'])
+
+        sep = Gtk.Separator()
+        sep.set_margin_top(4)
+        sep.set_margin_bottom(4)
+        root.append(sep)
+
+        footer = _hbox(10)
+        close = Gtk.Button(label=i18n.t('common.close'))
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        footer.append(close)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        footer.append(spacer)
+
+        self.refresh_btn = Gtk.Button(label=i18n.t('optimizer.preview.refresh'))
+        self.refresh_btn.add_css_class('btn-secondary')
+        self.refresh_btn.connect('clicked', lambda *_: self._scan())
+        footer.append(self.refresh_btn)
+
+        self.remove_btn = Gtk.Button(label=i18n.t('optimizer.preview.remove'))
+        self.remove_btn.add_css_class('btn-green')
+        self.remove_btn.set_sensitive(False)
+        self.remove_btn.connect('clicked', lambda *_: self._confirm_remove())
+        footer.append(self.remove_btn)
+
+        root.append(footer)
+        self.set_child(root)
+        self._scan()
+
+    def _make_text_area(self, min_height=160):
+        view = Gtk.TextView()
+        view.set_editable(False)
+        view.set_cursor_visible(False)
+        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        view.set_left_margin(8)
+        view.set_right_margin(8)
+        view.set_top_margin(8)
+        view.set_bottom_margin(8)
+        view.add_css_class('xray-detail')
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_min_content_height(min_height)
+        scroll.set_child(view)
+        return {'view': view, 'scroll': scroll, 'buffer': view.get_buffer()}
+
+    def _set_text(self, text):
+        self.area['buffer'].set_text(text or '')
+
+    def _scan(self):
+        self.refresh_btn.set_sensitive(False)
+        self.remove_btn.set_sensitive(False)
+        self.summary_label.set_visible(False)
+        self.status.set_text(self.scanning_text())
+        self._set_text('')
+        threading.Thread(target=self._scan_work, daemon=True).start()
+
+    def scanning_text(self):
+        return i18n.t('xray.collecting')
+
+    def _scan_work(self):
+        try:
+            data = self.preview()
+        except Exception as exc:
+            data = {'available': True, 'items': [], 'empty': True, 'error': str(exc), 'output': ''}
+        GLib.idle_add(self._apply_preview, data)
+
+    def preview(self):
+        return {'available': True, 'items': [], 'empty': True, 'error': '', 'output': ''}
+
+    def format_items(self, data):
+        return ''
+
+    def can_remove(self, data):
+        items = data.get('items') or []
+        return bool(items) and not data.get('unparsed')
+
+    def _apply_preview(self, data):
+        self._data = data or {}
+        self._items = list(self._data.get('items') or [])
+        self.refresh_btn.set_sensitive(True)
+        if not self._data.get('available', True):
+            self.status.set_text(i18n.t(self.unavailable_key))
+            self._set_text(self._data.get('error') or '')
+            self.remove_btn.set_sensitive(False)
+            return GLib.SOURCE_REMOVE
+        if self._data.get('unparsed'):
+            self.status.set_text(i18n.t('optimizer.flatpakunused.unparsed'))
+            self._set_text(self._data.get('output') or '')
+            self.summary_label.set_text('')
+            self.summary_label.set_visible(False)
+            self.remove_btn.set_sensitive(False)
+            return GLib.SOURCE_REMOVE
+        empty = self._data.get('empty', not self._items)
+        if empty:
+            self.status.set_text(self.empty_text())
+            self._set_text('')
+            self.summary_label.set_visible(False)
+            self.remove_btn.set_sensitive(False)
+        else:
+            self.status.set_text(i18n.t('optimizer.preview.items', count=len(self._items)))
+            extra = self._data.get('freed_text') or ''
+            if extra:
+                self.summary_label.set_text(i18n.t('optimizer.autoremove.freed', value=extra) if self._data.get('kind') == 'apt' else extra)
+                self.summary_label.set_visible(True)
+            else:
+                self.summary_label.set_visible(False)
+            self._set_text(self.format_items(self._data))
+            self.remove_btn.set_sensitive(self.can_remove(self._data))
+        return GLib.SOURCE_REMOVE
+
+    def empty_text(self):
+        return i18n.t('xray.empty')
+
+    def _confirm_remove(self):
+        if not self.can_remove(self._data):
+            return
+        confirm(self, self.confirm_title(), self.confirm_body(),
+                self.confirm_action(), self._do_remove)
+
+    def confirm_title(self):
+        return i18n.t('action.confirm.title', label=self.get_title())
+
+    def confirm_body(self):
+        return ''
+
+    def confirm_action(self):
+        return i18n.t('optimizer.preview.remove')
+
+    def _do_remove(self):
+        self.remove_btn.set_sensitive(False)
+        self.refresh_btn.set_sensitive(False)
+        self.status.set_text(self.running_text())
+        threading.Thread(target=self._remove_work, daemon=True).start()
+
+    def running_text(self):
+        return i18n.t('action.running')
+
+    def _remove_work(self):
+        try:
+            ok, message = self.remove(self._data)
+        except Exception as exc:
+            ok, message = False, str(exc)
+        GLib.idle_add(self._after_remove, ok, message)
+
+    def remove(self, data):
+        return False, ''
+
+    def _after_remove(self, ok, message):
+        self.refresh_btn.set_sensitive(True)
+        if ok:
+            show_info(self, self.get_title(), message or i18n.t('action.done.body'))
+        else:
+            show_info(self, self.get_title(), message or i18n.t('action.failed.body'))
+        self._scan()
+        return GLib.SOURCE_REMOVE
+
+
+class AptAutoremoveDialog(_PreviewCleanupDialog):
+    title_key = 'optimizer.autoremove.title'
+    subtitle_key = 'optimizer.autoremove.subtitle'
+    unavailable_key = 'optimizer.autoremove.unavailable'
+
+    def scanning_text(self):
+        return i18n.t('optimizer.autoremove.scanning')
+
+    def empty_text(self):
+        return i18n.t('optimizer.autoremove.none')
+
+    def preview(self):
+        data = optimizer.preview_apt_autoremove()
+        data['kind'] = 'apt'
+        return data
+
+    def format_items(self, data):
+        return '\n'.join('• ' + name for name in (data.get('items') or []))
+
+    def confirm_title(self):
+        return i18n.t('optimizer.autoremove.confirm_title')
+
+    def confirm_body(self):
+        items = data = self._data.get('items') or []
+        names = '\n'.join('• ' + n for n in items[:20])
+        if len(items) > 20:
+            names += '\n… +' + str(len(items) - 20)
+        return i18n.t('optimizer.autoremove.confirm_body', count=len(items), names=names)
+
+    def confirm_action(self):
+        return i18n.t('optimizer.autoremove.confirm_action')
+
+    def running_text(self):
+        return i18n.t('optimizer.autoremove.running')
+
+    def remove(self, data):
+        result = execute_command('apt-get autoremove -y', as_root=True, timeout=600)
+        if result.ok:
+            return True, i18n.t('optimizer.autoremove.done')
+        return False, result.error or i18n.t('optimizer.autoremove.failed')
+
+
+class SnapCleanupDialog(_PreviewCleanupDialog):
+    title_key = 'optimizer.snapclean.title'
+    subtitle_key = 'optimizer.snapclean.subtitle'
+    unavailable_key = 'optimizer.snapclean.unavailable'
+
+    def scanning_text(self):
+        return i18n.t('optimizer.snapclean.scanning')
+
+    def empty_text(self):
+        return i18n.t('optimizer.snapclean.none')
+
+    def preview(self):
+        return optimizer.preview_snap_disabled()
+
+    def format_items(self, data):
+        lines = []
+        for item in data.get('items') or []:
+            lines.append(f"• {item.get('name')}  {item.get('version','')}  (rev {item.get('rev','')})")
+        return '\n'.join(lines)
+
+    def confirm_title(self):
+        return i18n.t('optimizer.snapclean.confirm_title')
+
+    def confirm_body(self):
+        return i18n.t('optimizer.snapclean.confirm_body', count=len(self._items))
+
+    def confirm_action(self):
+        return i18n.t('optimizer.snapclean.confirm_action')
+
+    def running_text(self):
+        return i18n.t('optimizer.snapclean.running')
+
+    def remove(self, data):
+        errors = []
+        removed = 0
+        for item in data.get('items') or []:
+            name = item.get('name')
+            rev = item.get('rev')
+            if not name or not rev:
+                continue
+            cmd = f"snap remove {name} --revision={rev}"
+            result = execute_command(cmd, as_root=True, timeout=300)
+            if result.ok:
+                removed += 1
+            else:
+                errors.append(f"{name} rev {rev}: {result.error or 'erro'}")
+        if errors and removed:
+            return True, i18n.t('optimizer.snapclean.partial') + '\n' + '\n'.join(errors[:10])
+        if errors:
+            return False, '\n'.join(errors[:10])
+        return True, i18n.t('optimizer.snapclean.done')
+
+
+class FlatpakUnusedDialog(_PreviewCleanupDialog):
+    title_key = 'optimizer.flatpakunused.title'
+    subtitle_key = 'optimizer.flatpakunused.subtitle'
+    unavailable_key = 'optimizer.flatpakunused.unavailable'
+
+    def scanning_text(self):
+        return i18n.t('optimizer.flatpakunused.scanning')
+
+    def empty_text(self):
+        return i18n.t('optimizer.flatpakunused.none')
+
+    def preview(self):
+        return optimizer.preview_flatpak_unused()
+
+    def format_items(self, data):
+        items = data.get('items') or []
+        if items:
+            return '\n'.join('• ' + str(i) for i in items)
+        return data.get('output') or ''
+
+    def can_remove(self, data):
+        # allow remove if we have items, or if unparsed but user saw output? spec says "exige confirmação antes de qualquer remoção" when unparsed - but safer to only allow when we have items
+        return bool(data.get('items'))
+
+    def confirm_title(self):
+        return i18n.t('optimizer.flatpakunused.confirm_title')
+
+    def confirm_body(self):
+        return i18n.t('optimizer.flatpakunused.confirm_body')
+
+    def confirm_action(self):
+        return i18n.t('optimizer.flatpakunused.confirm_action')
+
+    def running_text(self):
+        return i18n.t('optimizer.flatpakunused.running')
+
+    def remove(self, data):
+        result = execute_command('flatpak uninstall --unused -y', as_root=False, timeout=600)
+        if result.ok:
+            return True, i18n.t('optimizer.flatpakunused.done')
+        return False, result.error or i18n.t('optimizer.flatpakunused.failed')
+
+
 OPTIMIZER_ACTIONS = (
     {
-        'label_key': 'optimizer.apt.label',
-        'description_key': 'optimizer.apt.description',
-        'detail_key': 'optimizer.apt.detail',
-        'command': 'apt-get autoremove -y && apt-get clean',
+        'label_key': 'optimizer.autoremove.title',
+        'description_key': 'optimizer.autoremove.desc',
+        'dialog': lambda parent: AptAutoremoveDialog(parent).present(),
+    },
+    {
+        'label_key': 'optimizer.clean.label',
+        'description_key': 'optimizer.clean.desc',
+        'detail_key': 'optimizer.clean.detail',
+        'command': 'apt-get clean',
         'as_root': True,
     },
     {
@@ -355,266 +693,17 @@ OPTIMIZER_ACTIONS = (
         'command': 'fstrim -av',
         'as_root': True,
     },
+    {
+        'label_key': 'optimizer.snapclean.title',
+        'description_key': 'optimizer.snapclean.desc',
+        'dialog': lambda parent: SnapCleanupDialog(parent).present(),
+    },
+    {
+        'label_key': 'optimizer.flatpakunused.title',
+        'description_key': 'optimizer.flatpakunused.desc',
+        'dialog': lambda parent: FlatpakUnusedDialog(parent).present(),
+    },
 )
-
-
-class StartupAppsDialog(Gtk.Window):
-    """Ativa e desativa os aplicativos que iniciam junto com o sistema."""
-
-    def __init__(self, parent):
-        super().__init__()
-        self.set_title(i18n.t('startup.title'))
-        self.set_modal(True)
-        self.set_transient_for(parent)
-        width, _height = self._screen_size()
-        self.set_default_size(min(1020, max(520, width - 80)), -1)
-        self.add_css_class('dialog')
-
-        root = _vbox(10)
-        root.set_margin_top(18)
-        root.set_margin_bottom(18)
-        root.set_margin_start(18)
-        root.set_margin_end(18)
-
-        root.append(_txt(i18n.t('startup.title'), 'dialog-title'))
-        root.append(_txt(i18n.t('startup.subtitle'), 'muted', wrap=True))
-
-        self._grid = Gtk.Grid()
-        self._grid.set_column_spacing(10)
-        self._grid.set_row_spacing(8)
-        self._grid.set_column_homogeneous(True)
-        self._grid.set_margin_top(2)
-        self._grid.set_margin_bottom(2)
-
-        self._scroller = Gtk.ScrolledWindow()
-        self._scroller.set_policy(Gtk.PolicyType.NEVER,
-                                  Gtk.PolicyType.AUTOMATIC)
-        self._scroller.set_child(self._grid)
-        self._scroller.set_propagate_natural_height(True)
-        self._scroller.set_max_content_height(self._content_limit())
-        self._scroller.set_vexpand(True)
-        root.append(self._scroller)
-
-        self.status = _txt('', 'muted', wrap=True)
-        root.append(self.status)
-
-        separator = Gtk.Separator()
-        separator.set_margin_top(4)
-        separator.set_margin_bottom(4)
-        root.append(separator)
-
-        close = Gtk.Button(label=i18n.t('common.close'))
-        close.add_css_class('btn-secondary')
-        close.connect('clicked', lambda *_: self.close())
-        root.append(close)
-
-        self.set_child(root)
-
-        # Esc sempre fecha, mesmo que a lista cresça.
-        keys = Gtk.EventControllerKey()
-        keys.connect('key-pressed', self._on_key)
-        self.add_controller(keys)
-
-        self._restoring = False
-        self._entries = []
-        self._load()
-
-    @staticmethod
-    def _screen_size():
-        display = Gdk.Display.get_default()
-        if display is not None:
-            monitors = display.get_monitors()
-            if monitors.get_n_items():
-                geometry = monitors.get_item(0).get_geometry()
-                return geometry.width, geometry.height
-        return 1280, 800
-
-    def _content_limit(self):
-        _width, height = self._screen_size()
-        return startup_content_limit(height)
-
-    def _on_key(self, _controller, keyval, _keycode, _state):
-        if keyval == Gdk.KEY_Escape:
-            self.close()
-            return True
-        return False
-
-    def _clear(self):
-        while True:
-            child = self._grid.get_first_child()
-            if child is None:
-                break
-            self._grid.remove(child)
-
-    def _load(self):
-        self._clear()
-        try:
-            self._entries = autostart.list_entries(Path.home())
-        except OSError as exc:
-            log.exception('Falha ao listar aplicativos de inicialização')
-            self._entries = []
-            show_info(self, i18n.t('startup.error.title'),
-                      i18n.t('startup.error.body', detail=exc))
-
-        if not self._entries:
-            self._grid.attach(
-                _txt(i18n.t('startup.empty'), 'empty-text'),
-                0, 0, STARTUP_COLUMNS, 1)
-            return
-
-        for index, entry in enumerate(self._entries):
-            self._grid.attach(self._cell(entry),
-                              index % STARTUP_COLUMNS,
-                              index // STARTUP_COLUMNS, 1, 1)
-
-    def _cell(self, entry):
-        cell = _hbox(8)
-        cell.add_css_class('dialog-row')
-
-        switch = Gtk.Switch()
-        switch.set_active(not entry.hidden)
-        switch.set_valign(Gtk.Align.CENTER)
-        switch.connect('notify::active', self._on_toggle, entry)
-        cell.append(switch)
-
-        label = _txt(entry.name, 'cat-name', wrap=True)
-        label.set_lines(2)
-        label.set_ellipsize(Pango.EllipsizeMode.END)
-        label.set_hexpand(True)
-        label.set_valign(Gtk.Align.CENTER)
-        cell.append(label)
-
-        if entry.command:
-            cell.set_tooltip_text(entry.command)
-        return cell
-
-    def _on_toggle(self, switch, _pspec, entry):
-        if self._restoring:
-            return
-        enabled = switch.get_active()
-        try:
-            autostart.set_enabled(entry, enabled, Path.home())
-        except OSError as exc:
-            log.exception('Falha ao alterar o aplicativo %s', entry.name)
-            show_info(self, i18n.t('startup.change_error.title'),
-                      i18n.t('startup.change_error.body', name=entry.name,
-                             detail=exc))
-            self._restoring = True
-            switch.set_active(not enabled)
-            self._restoring = False
-            return
-
-        estado = i18n.t('startup.enabled' if enabled else 'startup.disabled')
-        log.info('Startup %s: %s', entry.name, estado)
-        self.status.set_text(
-            i18n.t('startup.status', name=entry.name, state=estado))
-
-
-class MemoryDialog(Gtk.Window):
-    """Libera o cache de arquivos da memória RAM, fora da limpeza."""
-
-    def __init__(self, parent, on_released=None):
-        super().__init__()
-        self._on_released = on_released
-        self.set_title(i18n.t('memory.title'))
-        self.set_modal(True)
-        self.set_transient_for(parent)
-        self.set_default_size(520, -1)
-        self.add_css_class('dialog')
-
-        root = _vbox(10)
-        root.set_margin_top(18)
-        root.set_margin_bottom(18)
-        root.set_margin_start(18)
-        root.set_margin_end(18)
-
-        heading = _hbox(8)
-        heading.append(_icon('🧠'))
-        heading.append(_txt(i18n.t('memory.title'), 'dialog-title'))
-        root.append(heading)
-
-        root.append(_txt(i18n.t('memory.explain'), 'muted', wrap=True))
-
-        self._cache_label = _txt(
-            i18n.t('memory.cache_in_use', value='—'), 'cat-name')
-        root.append(self._cache_label)
-
-        self._free_label = _txt('', 'muted', wrap=True)
-        root.append(self._free_label)
-
-        self.status = _txt('', 'muted', wrap=True)
-        root.append(self.status)
-
-        separator = Gtk.Separator()
-        separator.set_margin_top(4)
-        separator.set_margin_bottom(4)
-        root.append(separator)
-
-        footer = _hbox(10)
-        close = Gtk.Button(label=i18n.t('common.close'))
-        close.add_css_class('btn-secondary')
-        close.connect('clicked', lambda *_: self.close())
-        footer.append(close)
-
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        footer.append(spacer)
-
-        self._release = Gtk.Button(label=i18n.t('memory.release'))
-        self._release.add_css_class('btn-green')
-        self._release.connect('clicked', self._on_release)
-        footer.append(self._release)
-
-        root.append(footer)
-        self.set_child(root)
-        self._refresh()
-
-    def _refresh(self):
-        values = memory.read_meminfo()
-        if not values:
-            self._cache_label.set_text(i18n.t('memory.unavailable'))
-            self._free_label.set_text('')
-            self._release.set_sensitive(False)
-            return
-
-        cache = memory.reclaimable_memory(values)
-        self._cache_label.set_text(
-            i18n.t('memory.cache_in_use',
-                   value=systeminfo.format_bytes(cache)))
-        self._free_label.set_text(i18n.t('memory.max_release'))
-        self._release.set_sensitive(True)
-
-    def _on_release(self, _button):
-        confirm(self, i18n.t('memory.confirm.title'),
-                i18n.t('memory.confirm.body'),
-                i18n.t('memory.confirm.action'), self._start)
-
-    def _start(self):
-        self._release.set_label(i18n.t('memory.releasing'))
-        self._release.set_sensitive(False)
-        self.status.set_text(i18n.t('memory.releasing_status'))
-        threading.Thread(target=self._work, daemon=True,
-                         name='cleanix-memory').start()
-
-    def _work(self):
-        result = memory.release_memory()
-        GLib.idle_add(self._done, result)
-
-    def _done(self, result):
-        self._release.set_label(i18n.t('memory.release'))
-        self._release.set_sensitive(True)
-
-        if result.ok:
-            self.status.set_text(i18n.t('memory.released'))
-            show_info(self, i18n.t('memory.title'), result.output)
-            self._refresh()
-            if self._on_released is not None:
-                self._on_released()
-        else:
-            self.status.set_text(i18n.t('memory.failed_status'))
-            show_info(self, i18n.t('memory.title'),
-                      result.error or i18n.t('memory.failed_body'))
-        return GLib.SOURCE_REMOVE
 
 
 class OptimizerDialog(_ActionDialog):

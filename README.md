@@ -59,9 +59,12 @@ do sistema.
   com o Espaço Recuperável atualizado na hora e revarrido em seguida.
 - Histórico persistente das limpezas em
   `~/.local/share/cleanix/history.json` (últimas 200 entradas).
-- **Otimizador** com ações reais: limpeza do APT, journal vacuum, `fstrim`,
-  liberação do cache da memória RAM em um diálogo próprio e gerenciador de
-  aplicativos de inicialização.
+- **Otimizador** com ações reais e prévia antes de remover: pacotes órfãos/
+  kernels antigos do APT (autoremove), limpeza do cache APT, journal vacuum,
+  `fstrim`, revisões desativadas do Snap e runtimes Flatpak não usados,
+  além de liberação do cache da memória RAM e gerenciador de aplicativos de
+  inicialização. Limpezas mostram o que será removido e pedem confirmação
+  (com senha de administrador quando necessário).
 - **Ajustes** com switches reais para animações do GNOME e limpeza automática
   de lixeira/temporários, aplicados via `gsettings`.
 - **Configurações** com idioma da interface, "confirmar antes de limpar" e
