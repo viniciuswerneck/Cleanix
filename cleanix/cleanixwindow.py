@@ -894,11 +894,21 @@ class CleanixWindow(Gtk.ApplicationWindow):
         except Exception:
             disks = []
 
-        # Mostra primeiro os discos físicos (saúde), depois partições
+        # Agrupa: cada disco físico seguido de suas partições
         phys = [d for d in disks if d.get('type') == 'disk' and (d.get('size_total') or 0) > 0
                 and not (d.get('name') or '').startswith(('loop', 'zram', 'ram'))]
         parts = [d for d in disks if d.get('type') in ('part', 'lvm', 'crypt') and (d.get('size_total') or 0) > 0]
-        ordered = phys + parts
+        ordered = []
+        used_parts = set()
+        for disk in phys:
+            ordered.append(disk)
+            for p in parts:
+                if p.get('parent') == disk.get('name'):
+                    ordered.append(p)
+                    used_parts.add(id(p))
+        for p in parts:
+            if id(p) not in used_parts:
+                ordered.append(p)
 
         shown = 0
         for info in ordered:
