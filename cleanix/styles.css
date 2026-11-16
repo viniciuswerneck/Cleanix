@@ -205,6 +205,13 @@ window {
 .smart-dialog label {
     font-size: 14px;
 }
+.smart-dialog textview,
+.smart-dialog textview text {
+    font-size: 14px;
+}
+.smart-dialog .xray-detail {
+    font-size: 14px;
+}
 
 /* ---------- Buttons ---------- */
 .btn-green {

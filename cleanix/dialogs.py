@@ -1182,15 +1182,14 @@ class XRayDialog(Gtk.Window):
         root.append(self.status)
 
         # BIOS expander
-        self.bios_details = _txt('', 'muted', wrap=True)
-        self.bios_details.set_selectable(True)
+        self.bios_details = self._make_text_area(180)
         self.bios_source = _txt('', 'muted')
         self.bios_full_btn = Gtk.Button(label='🔒 ' + i18n.t('xray.details_full'))
         self.bios_full_btn.add_css_class('btn-secondary')
         self.bios_full_btn.connect('clicked', lambda *_: self._fetch_priv_bios())
         bios_box = _vbox(6)
         bios_box.append(self.bios_source)
-        bios_box.append(self.bios_details)
+        bios_box.append(self.bios_details['scroll'])
         bios_box.append(self.bios_full_btn)
         self.exp_bios = Gtk.Expander(label=i18n.t('xray.bios'))
         self.exp_bios.set_child(bios_box)
@@ -1198,15 +1197,14 @@ class XRayDialog(Gtk.Window):
         root.append(self.exp_bios)
 
         # Hardware expander
-        self.hw_details = _txt('', 'muted', wrap=True)
-        self.hw_details.set_selectable(True)
+        self.hw_details = self._make_text_area(220)
         self.hw_source = _txt('', 'muted')
         self.hw_full_btn = Gtk.Button(label='🔒 ' + i18n.t('xray.details_full'))
         self.hw_full_btn.add_css_class('btn-secondary')
         self.hw_full_btn.connect('clicked', lambda *_: self._fetch_priv_hw())
         hw_box = _vbox(6)
         hw_box.append(self.hw_source)
-        hw_box.append(self.hw_details)
+        hw_box.append(self.hw_details['scroll'])
         hw_box.append(self.hw_full_btn)
         self.exp_hw = Gtk.Expander(label=i18n.t('xray.hardware'))
         self.exp_hw.set_child(hw_box)
@@ -1245,6 +1243,29 @@ class XRayDialog(Gtk.Window):
         self.set_child(scroller)
         self._collect()
 
+    def _make_text_area(self, min_height=160):
+        view = Gtk.TextView()
+        view.set_editable(False)
+        view.set_cursor_visible(False)
+        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        view.set_left_margin(8)
+        view.set_right_margin(8)
+        view.set_top_margin(8)
+        view.set_bottom_margin(8)
+        view.add_css_class('xray-detail')
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_min_content_height(min_height)
+        scroll.set_child(view)
+        return {'view': view, 'scroll': scroll, 'buffer': view.get_buffer()}
+
+    def _set_text_area(self, area, text):
+        area['buffer'].set_text(text or '')
+
+    def _get_text_area(self, area):
+        buf = area['buffer']
+        return buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+
     def _make_prog_section(self, key, title):
         exp = Gtk.Expander(label=title)
         box = _vbox(6)
@@ -1252,21 +1273,16 @@ class XRayDialog(Gtk.Window):
         search = Gtk.SearchEntry()
         search.set_placeholder_text(i18n.t('xray.search'))
         showing = _txt('', 'muted')
-        list_lbl = _txt('', 'muted', wrap=True)
-        list_lbl.set_selectable(True)
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_min_content_height(140)
-        scroll.set_child(list_lbl)
+        area = self._make_text_area(160)
         box.append(count_lbl)
         box.append(search)
         box.append(showing)
-        box.append(scroll)
+        box.append(area['scroll'])
         exp.set_child(box)
         search.connect('search-changed', lambda *_: self._update_prog_list(key))
         return {
             'expander': exp, 'box': box, 'count': count_lbl,
-            'search': search, 'showing': showing, 'list': list_lbl,
+            'search': search, 'showing': showing, 'area': area,
         }
 
     def _set_collecting(self, busy):
@@ -1312,10 +1328,10 @@ class XRayDialog(Gtk.Window):
         self._prog_lists['flatpak_apps'] = prog.get('flatpak_apps') or []
         # update details if not replaced by privileged
         if not self._priv_bios:
-            self.bios_details.set_text(bios.get('details') or i18n.t('xray.unavailable'))
+            self._set_text_area(self.bios_details, bios.get('details') or i18n.t('xray.unavailable'))
             self.bios_source.set_text(i18n.t('xray.source_unprivileged'))
         if not self._priv_hw:
-            self.hw_details.set_text(hw.get('details') or i18n.t('xray.unavailable'))
+            self._set_text_area(self.hw_details, hw.get('details') or i18n.t('xray.unavailable'))
             self.hw_source.set_text(i18n.t('xray.source_unprivileged'))
         self.prog_note.set_text(i18n.t('xray.programs.runtimes', n=rt))
         for key in self.prog_sections:
@@ -1326,14 +1342,14 @@ class XRayDialog(Gtk.Window):
     def _on_expand_bios(self, exp, _p):
         if exp.get_expanded() and self._snapshot and not self._priv_bios:
             bios = self._snapshot.get('bios', {})
-            if not self.bios_details.get_text():
-                self.bios_details.set_text(bios.get('details') or i18n.t('xray.unavailable'))
+            if not self._get_text_area(self.bios_details):
+                self._set_text_area(self.bios_details, bios.get('details') or i18n.t('xray.unavailable'))
 
     def _on_expand_hw(self, exp, _p):
         if exp.get_expanded() and self._snapshot and not self._priv_hw:
             hw = self._snapshot.get('hardware', {})
-            if not self.hw_details.get_text():
-                self.hw_details.set_text(hw.get('details') or i18n.t('xray.unavailable'))
+            if not self._get_text_area(self.hw_details):
+                self._set_text_area(self.hw_details, hw.get('details') or i18n.t('xray.unavailable'))
 
     def _on_expand_prog(self, exp, _p):
         if exp.get_expanded():
@@ -1360,7 +1376,7 @@ class XRayDialog(Gtk.Window):
         self.status.set_text('')
         if res.get('ok'):
             self._priv_bios = True
-            self.bios_details.set_text(res.get('details') or i18n.t('xray.unavailable'))
+            self._set_text_area(self.bios_details, res.get('details') or i18n.t('xray.unavailable'))
             self.bios_source.set_text(i18n.t('xray.source_privileged'))
         else:
             err = res.get('error') or i18n.t('xray.unavailable')
@@ -1389,7 +1405,7 @@ class XRayDialog(Gtk.Window):
         self.status.set_text('')
         if res.get('ok'):
             self._priv_hw = True
-            self.hw_details.set_text(res.get('details') or i18n.t('xray.unavailable'))
+            self._set_text_area(self.hw_details, res.get('details') or i18n.t('xray.unavailable'))
             self.hw_source.set_text(i18n.t('xray.source_privileged'))
         else:
             err = res.get('error') or i18n.t('xray.unavailable')
@@ -1412,8 +1428,8 @@ class XRayDialog(Gtk.Window):
         show = filtered[: self.PROGRAM_RENDER_LIMIT]
         if show:
             lines = [f"{n}  —  {v}" if v else n for (n, v) in show]
-            sec['list'].set_text('\n'.join(lines))
+            self._set_text_area(sec['area'], '\n'.join(lines))
         else:
-            sec['list'].set_text(i18n.t('xray.empty'))
+            self._set_text_area(sec['area'], i18n.t('xray.empty'))
         sec['showing'].set_text(
             i18n.t('xray.showing', n=len(show), m=total))
