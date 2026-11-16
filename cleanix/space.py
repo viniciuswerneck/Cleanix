@@ -23,6 +23,32 @@ def _should_skip_dir(path: str) -> bool:
     return False
 
 
+def _normalize_excludes(exclude):
+    out = []
+    for item in (exclude or []):
+        if not item:
+            continue
+        try:
+            out.append(os.path.abspath(str(item)))
+        except Exception:
+            continue
+    # longer paths first not necessary; just check prefixes
+    return out
+
+
+def _is_excluded(path: str, excludes) -> bool:
+    if not excludes:
+        return False
+    try:
+        ap = os.path.abspath(path)
+    except Exception:
+        return False
+    for ex in excludes:
+        if ap == ex or ap.startswith(ex + os.sep):
+            return True
+    return False
+
+
 def _emit(progress, stage, **info):
     if progress:
         try:
@@ -31,9 +57,10 @@ def _emit(progress, stage, **info):
             pass
 
 
-def _iter_walk(root: str, cancel=None, progress=None):
+def _iter_walk(root: str, cancel=None, progress=None, exclude=None):
     """Percorre arquivos regulares sem seguir symlinks, rendendo (path, size)."""
     root = os.path.abspath(root)
+    excludes = _normalize_excludes(exclude)
     stack = [root]
     seen_dirs = set()
     count = 0
@@ -41,7 +68,7 @@ def _iter_walk(root: str, cancel=None, progress=None):
         if cancel and cancel():
             return
         current = stack.pop()
-        if _should_skip_dir(current):
+        if _should_skip_dir(current) or _is_excluded(current, excludes):
             continue
         try:
             st = os.lstat(current)
@@ -58,6 +85,8 @@ def _iter_walk(root: str, cancel=None, progress=None):
                         return
                     try:
                         if entry.is_symlink():
+                            continue
+                        if _is_excluded(entry.path, excludes):
                             continue
                         if entry.is_dir(follow_symlinks=False):
                             stack.append(entry.path)
@@ -78,14 +107,14 @@ def _iter_walk(root: str, cancel=None, progress=None):
 
 
 def scan_largest(root: str, top_files: int = 50, top_dirs: int = 30,
-                 cancel=None, progress=None):
+                 cancel=None, progress=None, exclude=None, min_size: int = 0):
     """Retorna maiores arquivos e diretórios (tamanho agregado) sob root."""
     root = os.path.abspath(root)
     file_records = []
     cancelled = False
     _emit(progress, 'scan', files=0)
     try:
-        for path, sz in _iter_walk(root, cancel=cancel, progress=progress):
+        for path, sz in _iter_walk(root, cancel=cancel, progress=progress, exclude=exclude):
             file_records.append((path, sz))
         if cancel and cancel():
             cancelled = True
@@ -94,7 +123,7 @@ def scan_largest(root: str, top_files: int = 50, top_dirs: int = 30,
     if cancel and cancel():
         cancelled = True
 
-    files = [{'path': p, 'size': sz} for p, sz in file_records]
+    files = [{'path': p, 'size': sz} for p, sz in file_records if sz >= int(min_size or 0)]
     files.sort(key=lambda x: x['size'], reverse=True)
 
     _emit(progress, 'dirs', files=len(file_records))
@@ -141,9 +170,10 @@ def _file_hash(path: str, cancel=None):
 
 
 def find_duplicates(root: str, min_size: int = 1024 * 1024, top_groups: int = 50,
-                    cancel=None, progress=None):
+                    cancel=None, progress=None, exclude=None):
     """Encontra grupos de arquivos duplicados por conteúdo (tamanho+hash)."""
     root = os.path.abspath(root)
+    excludes = _normalize_excludes(exclude)
     by_size = {}
     cancelled = False
     _emit(progress, 'scan', files=0)
@@ -156,7 +186,7 @@ def find_duplicates(root: str, min_size: int = 1024 * 1024, top_groups: int = 50
             cancelled = True
             break
         current = stack.pop()
-        if _should_skip_dir(current):
+        if _should_skip_dir(current) or _is_excluded(current, excludes):
             continue
         try:
             st = os.lstat(current)
@@ -174,6 +204,8 @@ def find_duplicates(root: str, min_size: int = 1024 * 1024, top_groups: int = 50
                         break
                     try:
                         if entry.is_symlink():
+                            continue
+                        if _is_excluded(entry.path, excludes):
                             continue
                         if entry.is_dir(follow_symlinks=False):
                             stack.append(entry.path)

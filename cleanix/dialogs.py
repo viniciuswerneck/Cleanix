@@ -2340,6 +2340,8 @@ class SpaceAnalysisDialog(Gtk.Window):
         self._folder = str(Path.home())
         self._cancel = False
         self._busy = False
+        self._excludes = []
+        self._min_sizes = [0, 1*1024*1024, 10*1024*1024, 100*1024*1024, 1024*1024*1024]
 
         root = _vbox(10)
         root.set_margin_top(18)
@@ -2361,6 +2363,22 @@ class SpaceAnalysisDialog(Gtk.Window):
         choose.connect('clicked', lambda *_: self._choose_folder())
         folder_row.append(choose)
         root.append(folder_row)
+
+        opts = _hbox(12)
+        min_box = _hbox(6)
+        min_box.append(_txt(i18n.t('space.min_size') + ':', 'cat-name'))
+        self.min_combo = Gtk.ComboBoxText()
+        for label in [i18n.t('space.min_any'), '1 MB', '10 MB', '100 MB', '1 GB']:
+            self.min_combo.append_text(label)
+        self.min_combo.set_active(0)
+        min_box.append(self.min_combo)
+        opts.append(min_box)
+
+        self.exclude_btn = Gtk.Button(label=i18n.t('space.exclude') + ' (0)')
+        self.exclude_btn.add_css_class('btn-secondary')
+        self.exclude_btn.connect('clicked', lambda *_: self._manage_excludes())
+        opts.append(self.exclude_btn)
+        root.append(opts)
 
         controls = _hbox(8)
         self.scan_btn = Gtk.Button(label=i18n.t('space.scan'))
@@ -2401,6 +2419,86 @@ class SpaceAnalysisDialog(Gtk.Window):
 
         root.append(self.notebook)
         self.set_child(root)
+
+    def _update_exclude_label(self):
+        self.exclude_btn.set_label(f"{i18n.t('space.exclude')} ({len(self._excludes)})")
+
+    def _manage_excludes(self):
+        dialog = Gtk.Window()
+        dialog.set_title(i18n.t('space.exclude.title'))
+        dialog.set_modal(True)
+        dialog.set_transient_for(self)
+        dialog.set_default_size(520, 320)
+        dialog.add_css_class('dialog')
+
+        root = _vbox(8)
+        root.set_margin_top(12); root.set_margin_bottom(12)
+        root.set_margin_start(12); root.set_margin_end(12)
+        list_box = _vbox(6)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_child(list_box)
+        root.append(scroll)
+
+        def refresh():
+            child = list_box.get_first_child()
+            while child is not None:
+                nxt = child.get_next_sibling()
+                list_box.remove(child)
+                child = nxt
+            if not self._excludes:
+                list_box.append(_txt(i18n.t('space.exclude.none'), 'muted'))
+            else:
+                for path in list(self._excludes):
+                    row = _hbox(8)
+                    row.add_css_class('dialog-row')
+                    row.append(_txt(path, 'cat-name', wrap=True))
+                    spacer = Gtk.Box(); spacer.set_hexpand(True); row.append(spacer)
+                    btn = Gtk.Button(label=i18n.t('space.exclude.remove'))
+                    btn.add_css_class('btn-secondary')
+                    def rm(_b=None, p=path):
+                        if p in self._excludes:
+                            self._excludes.remove(p)
+                        self._update_exclude_label()
+                        refresh()
+                    btn.connect('clicked', rm)
+                    row.append(btn)
+                    list_box.append(row)
+
+        refresh()
+
+        actions = _hbox(8)
+        add = Gtk.Button(label=i18n.t('space.exclude.add'))
+        add.add_css_class('btn-green')
+        def add_folder(*_):
+            try:
+                fd = Gtk.FileDialog()
+                fd.set_title(i18n.t('space.exclude.add'))
+                def on_done(dlg, res):
+                    try:
+                        folder = dlg.select_folder_finish(res)
+                    except Exception:
+                        return
+                    if folder:
+                        pth = folder.get_path()
+                        if pth and pth not in self._excludes:
+                            self._excludes.append(pth)
+                            self._update_exclude_label()
+                            refresh()
+                fd.select_folder(dialog, None, on_done)
+            except Exception:
+                pass
+        add.connect('clicked', add_folder)
+        actions.append(add)
+        spacer = Gtk.Box(); spacer.set_hexpand(True); actions.append(spacer)
+        close = Gtk.Button(label=i18n.t('common.close'))
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: dialog.close())
+        actions.append(close)
+        root.append(actions)
+        dialog.set_child(root)
+        dialog.present()
 
     def _choose_folder(self):
         try:
@@ -2497,15 +2595,22 @@ class SpaceAnalysisDialog(Gtk.Window):
 
     def _scan_work(self, folder):
         try:
+            idx = self.min_combo.get_active()
+            if idx < 0 or idx >= len(self._min_sizes):
+                idx = 0
+            min_large = self._min_sizes[idx]
+            excludes = list(self._excludes)
             large = space.scan_largest(folder, top_files=40, top_dirs=25,
                                        cancel=lambda: self._cancel,
-                                       progress=self._on_progress)
+                                       progress=self._on_progress,
+                                       exclude=excludes, min_size=min_large)
             if self._cancel or large.get('cancelled'):
                 GLib.idle_add(self._apply_results, large, {'groups': []}, True)
                 return
             dupes = space.find_duplicates(folder, min_size=1024*1024, top_groups=30,
                                           cancel=lambda: self._cancel,
-                                          progress=self._on_progress)
+                                          progress=self._on_progress,
+                                          exclude=excludes)
         except Exception as exc:
             GLib.idle_add(self._apply_error, str(exc))
             return

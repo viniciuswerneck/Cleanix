@@ -97,3 +97,38 @@ class DuplicatesTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class ExcludeAndFilterTest(unittest.TestCase):
+    def test_excludes_folder(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / 'keep.txt').write_bytes(b'a' * 50)
+            skip = root / 'skipme'
+            skip.mkdir()
+            (skip / 'big.txt').write_bytes(b'b' * 500)
+            result = space.scan_largest(str(root), top_files=10, top_dirs=10,
+                                        exclude=[str(skip)])
+            paths = [f['path'] for f in result['files']]
+            self.assertTrue(any('keep.txt' in p for p in paths))
+            self.assertFalse(any('big.txt' in p for p in paths))
+
+    def test_min_size_filters_large_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / 'small.txt').write_bytes(b'a' * 10)
+            (root / 'big.txt').write_bytes(b'b' * 100)
+            result = space.scan_largest(str(root), top_files=10, top_dirs=10,
+                                        min_size=50)
+            paths = [Path(f['path']).name for f in result['files']]
+            self.assertEqual(paths, ['big.txt'])
+
+    def test_duplicates_respects_exclude(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            content = b'x' * 200
+            (root / 'a.bin').write_bytes(content)
+            skip = root / 'skip'
+            skip.mkdir()
+            (skip / 'b.bin').write_bytes(content)
+            result = space.find_duplicates(str(root), min_size=1, exclude=[str(skip)])
+            self.assertEqual(result['groups'], [])
