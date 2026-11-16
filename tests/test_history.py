@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cleanix import history
+from cleanix import history, i18n
 
 
 def entry(n: int) -> history.HistoryEntry:
@@ -54,3 +54,11 @@ class HistoryTest(unittest.TestCase):
     def test_format_timestamp(self):
         self.assertEqual(history.format_timestamp("2026-11-15T10:20:00"),
                          "15/11/2026 10:20")
+
+    def test_format_timestamp_english(self):
+        i18n.set_language("en")
+        try:
+            self.assertEqual(history.format_timestamp("2026-11-15T10:20:00"),
+                             "11/15/2026 10:20")
+        finally:
+            i18n.set_language("pt_BR")

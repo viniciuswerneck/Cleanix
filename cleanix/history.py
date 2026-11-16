@@ -6,8 +6,9 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass
-from datetime import datetime
 from pathlib import Path
+
+from . import i18n
 
 MAX_ENTRIES = 200
 
@@ -26,10 +27,7 @@ def history_path() -> Path:
 
 
 def format_timestamp(iso: str) -> str:
-    try:
-        return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M")
-    except (TypeError, ValueError):
-        return iso
+    return i18n.format_datetime(iso)
 
 
 def _entry_from_dict(data: dict) -> HistoryEntry | None:
