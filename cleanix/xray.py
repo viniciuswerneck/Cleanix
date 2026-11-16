@@ -1571,10 +1571,10 @@ def _program_items(items):
     return result
 
 
-def build_report_json(snapshot, bios_details='', hw_details='',
-                      bios_source='', hw_source='', priv_error='',
-                      redact=True):
-    """Monta o relatório JSON do Raio-X."""
+def build_report_data(snapshot, bios_details='', hw_details='',
+                       bios_source='', hw_source='', priv_error='',
+                       redact=True):
+    """Monta o inventário do Raio-X como dicionário (comparável)."""
     snap = snapshot or {}
     bios = snap.get('bios', {}) or {}
     hardware = snap.get('hardware', {}) or {}
@@ -1601,7 +1601,7 @@ def build_report_json(snapshot, bios_details='', hw_details='',
             item['mac'] = i18n.t('xray.redacted')
         interfaces.append(item)
 
-    data = {
+    return {
         'meta': {
             'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'cleanix_version': str(cleanix_version),
@@ -1639,6 +1639,16 @@ def build_report_json(snapshot, bios_details='', hw_details='',
         },
         'limitations': list(limitations),
     }
+
+
+def build_report_json(snapshot, bios_details='', hw_details='',
+                      bios_source='', hw_source='', priv_error='',
+                      redact=True):
+    """Monta o relatório JSON do Raio-X."""
+    data = build_report_data(
+        snapshot, bios_details=bios_details, hw_details=hw_details,
+        bios_source=bios_source, hw_source=hw_source,
+        priv_error=priv_error, redact=redact)
     return json.dumps(data, ensure_ascii=False, indent=2)
 
 
