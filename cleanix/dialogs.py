@@ -3,6 +3,7 @@
 
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 
 import gi
@@ -1149,8 +1150,11 @@ class XRayDialog(Gtk.Window):
         self._prog_lists = {'apt': [], 'snap': [], 'flatpak_apps': []}
         self._bios_detail_text = ''
         self._hw_detail_text = ''
+        self._network_detail_text = ''
+        self._system_detail_text = ''
         self._bios_source_text = ''
-        self._hw_source_text = '' 
+        self._hw_source_text = ''
+        self._alert_texts = []
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -1176,7 +1180,13 @@ class XRayDialog(Gtk.Window):
         title_box.set_hexpand(True)
         title_box.append(_txt(i18n.t('xray.title'), 'dialog-title'))
         title_box.append(_txt(i18n.t('xray.subtitle'), 'muted', wrap=True))
+        self.updated = _txt('', 'xray-updated')
+        self.updated.set_visible(False)
+        title_box.append(self.updated)
         head.append(title_box)
+        self.spinner = Gtk.Spinner()
+        self.spinner.add_css_class('xray-spinner')
+        head.append(self.spinner)
         self.refresh_btn = Gtk.Button(label=i18n.t('xray.refresh'))
         self.refresh_btn.add_css_class('status-btn')
         self.refresh_btn.add_css_class('xray-refresh')
@@ -1195,7 +1205,24 @@ class XRayDialog(Gtk.Window):
             summary_card, '⚙️', 'xray.hardware', 'purple')
         self.summary_prog = self._make_summary_row(
             summary_card, '📦', 'xray.programs', 'green')
+        self.alerts_line = _txt('', 'xray-alert-line', wrap=True)
+        self.alerts_line.set_visible(False)
+        summary_card.append(self.alerts_line)
         root.append(summary_card)
+
+        actions = _hbox(8)
+        actions.add_css_class('xray-toolbar')
+        self.expand_btn = Gtk.Button(label=i18n.t('xray.expand_all'))
+        self.expand_btn.add_css_class('btn-secondary')
+        self.expand_btn.add_css_class('xray-action')
+        self.expand_btn.connect('clicked', lambda *_: self._expand_all(True))
+        actions.append(self.expand_btn)
+        self.collapse_btn = Gtk.Button(label=i18n.t('xray.collapse_all'))
+        self.collapse_btn.add_css_class('btn-secondary')
+        self.collapse_btn.add_css_class('xray-action')
+        self.collapse_btn.connect('clicked', lambda *_: self._expand_all(False))
+        actions.append(self.collapse_btn)
+        root.append(actions)
 
         self.status = _txt('', 'muted', wrap=True)
         root.append(self.status)
@@ -1210,7 +1237,11 @@ class XRayDialog(Gtk.Window):
         bios_box = _vbox(10)
         bios_box.append(self.bios_source)
         bios_box.append(self.bios_details['scroll'])
-        bios_box.append(self.bios_full_btn)
+        bios_actions = _hbox(8)
+        bios_actions.append(self._make_copy_button(
+            lambda: self._bios_detail_text))
+        bios_actions.append(self.bios_full_btn)
+        bios_box.append(bios_actions)
         self.bios_card = self._make_card(
             '🧩', i18n.t('xray.bios'), i18n.t('xray.bios.subtitle'),
             variant='blue', on_open=self._load_bios_details)
@@ -1227,17 +1258,53 @@ class XRayDialog(Gtk.Window):
         hw_box = _vbox(10)
         hw_box.append(self.hw_source)
         hw_box.append(self.hw_details['scroll'])
-        hw_box.append(self.hw_full_btn)
+        hw_actions = _hbox(8)
+        hw_actions.append(self._make_copy_button(
+            lambda: self._hw_detail_text))
+        hw_actions.append(self.hw_full_btn)
+        hw_box.append(hw_actions)
         self.hw_card = self._make_card(
             '⚙️', i18n.t('xray.hardware'), i18n.t('xray.hardware.subtitle'),
             variant='purple', on_open=self._load_hw_details)
         self.hw_card['body'].append(hw_box)
         root.append(self.hw_card['card'])
 
+        # Rede
+        self.network_details = self._make_text_area(160)
+        network_box = _vbox(10)
+        network_box.append(self.network_details['scroll'])
+        network_box.append(self._make_copy_button(
+            lambda: self._network_detail_text))
+        self.network_card = self._make_card(
+            '🌐', i18n.t('xray.section.network'),
+            i18n.t('xray.network.subtitle'), variant='teal',
+            on_open=self._load_network_details)
+        self.network_card['body'].append(network_box)
+        root.append(self.network_card['card'])
+
+        # Sistema
+        self.system_details = self._make_text_area(160)
+        system_box = _vbox(10)
+        system_box.append(self.system_details['scroll'])
+        system_box.append(self._make_copy_button(
+            lambda: self._system_detail_text))
+        self.system_card = self._make_card(
+            '🩺', i18n.t('xray.section.systeminfo'),
+            i18n.t('xray.system.subtitle'), variant='blue',
+            on_open=self._load_system_details)
+        self.system_card['body'].append(system_box)
+        root.append(self.system_card['card'])
+
         # Programas
         self.prog_box = _vbox(10)
         self.prog_note = _txt('', 'xray-source', wrap=True)
         self.prog_box.append(self.prog_note)
+        self.global_search = Gtk.SearchEntry()
+        self.global_search.set_placeholder_text(i18n.t('xray.search_all'))
+        self.global_search.add_css_class('xray-search')
+        self.global_search.connect(
+            'search-changed', lambda *_: self._update_all_prog_lists())
+        self.prog_box.append(self.global_search)
         self.prog_sections = {}
         for key, title_key, icon, variant in (
             ('apt', 'xray.programs.apt', '📦', 'blue'),
@@ -1264,9 +1331,21 @@ class XRayDialog(Gtk.Window):
         close.connect('clicked', lambda *_: self.close())
         footer.append(close)
 
+        self.footer_refresh_btn = Gtk.Button(label=i18n.t('xray.refresh'))
+        self.footer_refresh_btn.add_css_class('btn-secondary')
+        self.footer_refresh_btn.connect('clicked', lambda *_: self._collect())
+        footer.append(self.footer_refresh_btn)
+
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
         footer.append(spacer)
+
+        self.redact_check = Gtk.CheckButton(
+            label='🔒 ' + i18n.t('xray.privacy_check'))
+        self.redact_check.set_active(True)
+        self.redact_check.set_tooltip_text(i18n.t('xray.privacy_check_tip'))
+        self.redact_check.add_css_class('xray-privacy')
+        footer.append(self.redact_check)
 
         self.export_btn = Gtk.Button(label=i18n.t('xray.export_html'))
         self.export_btn.add_css_class('btn-green')
@@ -1276,6 +1355,11 @@ class XRayDialog(Gtk.Window):
 
         scroller.set_child(root)
         self.set_child(scroller)
+
+        key = Gtk.EventControllerKey()
+        key.connect('key-pressed', self._on_key)
+        self.add_controller(key)
+
         self._collect()
 
     def _make_text_area(self, min_height=160):
@@ -1389,6 +1473,50 @@ class XRayDialog(Gtk.Window):
         buf = area['buffer']
         return buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
 
+    def _make_copy_button(self, getter):
+        btn = Gtk.Button(label='📋 ' + i18n.t('xray.copy'))
+        btn.add_css_class('btn-secondary')
+        btn.add_css_class('xray-action')
+        btn.connect('clicked', lambda *_: self._copy_text(getter()))
+        return btn
+
+    def _copy_text(self, text):
+        text = (text or '').strip()
+        if not text:
+            return
+        try:
+            clipboard = Gdk.Display.get_default().get_clipboard()
+            clipboard.set(text)
+            self._set_status(i18n.t('xray.copied'))
+        except Exception as exc:
+            log.warning('Falha ao copiar texto: %s', exc)
+            self._set_status(i18n.t('xray.unavailable'))
+
+    def _on_key(self, _controller, keyval, _keycode, _state):
+        if keyval == Gdk.KEY_Escape:
+            self.close()
+            return True
+        return False
+
+    def _expand_all(self, expand):
+        cards = [self.bios_card, self.hw_card, self.network_card,
+                 self.system_card, self.prog_card]
+        cards.extend(sec['card'] for sec in self.prog_sections.values())
+        for card in cards:
+            self._toggle_card(card, expand)
+
+    def _load_network_details(self):
+        if self._snapshot and not self._get_text_area(self.network_details):
+            self._set_text_area(
+                self.network_details,
+                self._network_detail_text or i18n.t('xray.unavailable'))
+
+    def _load_system_details(self):
+        if self._snapshot and not self._get_text_area(self.system_details):
+            self._set_text_area(
+                self.system_details,
+                self._system_detail_text or i18n.t('xray.unavailable'))
+
     def _make_prog_section(self, key, title, icon='📦', variant='blue'):
         card = self._make_card(
             icon, title, badge='', variant=variant, compact=True,
@@ -1398,24 +1526,46 @@ class XRayDialog(Gtk.Window):
         search.set_placeholder_text(i18n.t('xray.search'))
         search.add_css_class('xray-search')
         showing = _txt('', 'muted')
+        more = Gtk.Button(label=i18n.t('xray.show_all'))
+        more.add_css_class('btn-secondary')
+        more.add_css_class('xray-action')
+        more.set_visible(False)
+        more.connect('clicked', lambda *_: self._show_all_programs(key))
         area = self._make_text_area(160)
         box.append(search)
         box.append(showing)
+        box.append(more)
         box.append(area['scroll'])
         search.connect('search-changed', lambda *_: self._update_prog_list(key))
         return {
             'card': card, 'box': box, 'search': search,
-            'showing': showing, 'area': area,
+            'showing': showing, 'more_btn': more, 'area': area,
+            'show_all': False, 'last_query': None,
         }
+
+    def _show_all_programs(self, key):
+        sec = self.prog_sections.get(key)
+        if not sec:
+            return
+        sec['show_all'] = True
+        self._update_prog_list(key)
+
+    def _update_all_prog_lists(self):
+        for key in self.prog_sections:
+            self._update_prog_list(key)
 
     def _set_collecting(self, busy):
         self._collecting = busy
         self.refresh_btn.set_sensitive(not busy)
+        self.footer_refresh_btn.set_sensitive(not busy)
         self.bios_full_btn.set_sensitive(not busy)
         self.hw_full_btn.set_sensitive(not busy)
+        self.export_btn.set_sensitive(not busy)
         if busy:
+            self.spinner.start()
             self._set_status(i18n.t('xray.collecting'))
         else:
+            self.spinner.stop()
             self._set_status('')
 
     def _collect(self):
@@ -1433,6 +1583,9 @@ class XRayDialog(Gtk.Window):
                     'hardware': {'summary': '', 'details': ''},
                     'programs': {'apt': [], 'snap': [], 'flatpak_apps': [],
                                  'flatpak_runtimes': 0, 'summary': ''},
+                    'network': {'summary': '', 'details': ''},
+                    'system': {'summary': '', 'details': ''},
+                    'disks': [], 'alerts': [],
                     'limitations': [str(exc)]}
         GLib.idle_add(self._apply_snapshot, snap)
 
@@ -1464,6 +1617,35 @@ class XRayDialog(Gtk.Window):
             self._set_text_area(self.hw_details, self._hw_detail_text)
             self.hw_source.set_text(self._hw_source_text)
         self.prog_note.set_text(i18n.t('xray.programs.runtimes', n=rt))
+
+        network = snap.get('network') or {}
+        system = snap.get('system') or {}
+        self._network_detail_text = (
+            network.get('details') or i18n.t('xray.unavailable'))
+        self._system_detail_text = (
+            system.get('details') or i18n.t('xray.unavailable'))
+        self._set_text_area(self.network_details, self._network_detail_text)
+        self._set_text_area(self.system_details, self._system_detail_text)
+        net_summary = network.get('summary') or ''
+        sys_summary = system.get('summary') or ''
+        self.network_card['subtitle'].set_text(net_summary)
+        self.network_card['subtitle'].set_visible(bool(net_summary))
+        self.system_card['subtitle'].set_text(sys_summary)
+        self.system_card['subtitle'].set_visible(bool(sys_summary))
+
+        alerts = snap.get('alerts') or []
+        self._alert_texts = [a.get('text') for a in alerts if a.get('text')]
+        if self._alert_texts:
+            self.alerts_line.set_text(
+                '⚠️ ' + '  ·  '.join(self._alert_texts))
+            self.alerts_line.set_visible(True)
+        else:
+            self.alerts_line.set_visible(False)
+
+        self.updated.set_text(i18n.t(
+            'xray.updated_at', time=datetime.now().strftime('%H:%M')))
+        self.updated.set_visible(True)
+
         for key in self.prog_sections:
             self._update_prog_list(key)
         self._set_collecting(False)
@@ -1556,17 +1738,27 @@ class XRayDialog(Gtk.Window):
             return
         items = self._prog_lists.get(key) or []
         q = (sec['search'].get_text() or '').strip().lower()
-        if q:
-            filtered = [item for item in items
-                        if q in item[0].lower()
-                        or q in (item[1] if len(item) > 1 else '').lower()]
-        else:
-            filtered = list(items)
+        gq = (self.global_search.get_text() or '').strip().lower()
+        query = q + '\x00' + gq
+        if sec.get('last_query') != query:
+            sec['show_all'] = False
+            sec['last_query'] = query
+
+        def matches(item):
+            haystack = ' '.join(str(part or '') for part in item).lower()
+            return (not q or q in haystack) and (not gq or gq in haystack)
+
+        filtered = [item for item in items if matches(item)]
         badge = sec['card']['badge']
         badge.set_text(str(len(items)))
         badge.set_visible(bool(items))
         total = len(filtered)
-        show = filtered[: self.PROGRAM_RENDER_LIMIT]
+        if sec.get('show_all'):
+            show = filtered
+        else:
+            show = filtered[: self.PROGRAM_RENDER_LIMIT]
+        sec['more_btn'].set_visible(
+            total > self.PROGRAM_RENDER_LIMIT and not sec.get('show_all'))
         if show:
             lines = []
             for item in show:
@@ -1680,4 +1872,5 @@ class XRayDialog(Gtk.Window):
             bios_source=self._bios_source_text,
             hw_source=self._hw_source_text,
             priv_error=priv_error,
+            redact=self.redact_check.get_active(),
         )

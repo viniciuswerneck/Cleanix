@@ -366,6 +366,24 @@ window {
     background-color: #3A3752;
     color: #FFFFFF;
 }
+.smart-dialog .xray-updated {
+    font-size: 11px;
+    color: #8F8CA3;
+}
+.smart-dialog .xray-spinner {
+    margin-right: 6px;
+}
+.smart-dialog .xray-toolbar {
+    margin-top: 2px;
+}
+.smart-dialog .xray-alert-line {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    background-color: #3D2E1E;
+    color: #F0C987;
+    font-size: 13px;
+}
 .smart-dialog scrollbar {
     background: none;
 }
