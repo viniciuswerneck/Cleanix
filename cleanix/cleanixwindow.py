@@ -531,6 +531,23 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
         self.disk_total_label = txt(i18n.t('disk.total', value='—'), 'muted')
         disk.append(self.disk_total_label)
+
+        disks_head = hbox(8)
+        disks_head.set_margin_top(8)
+        disks_head.append(txt(i18n.t('disks.section'), 'metric-label'))
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        disks_head.append(spacer)
+        self.disks_refresh_btn = Gtk.Button(label=i18n.t('disks.refresh'))
+        self.disks_refresh_btn.add_css_class('status-btn')
+        self.disks_refresh_btn.connect('clicked',
+                                       lambda *_: self._refresh_disks_list())
+        disks_head.append(self.disks_refresh_btn)
+        disk.append(disks_head)
+
+        self.disks_list = vbox(4)
+        disk.append(self.disks_list)
+        self._refresh_disks_list()
         row.append(disk)
 
         cpu = vbox(10)
@@ -862,6 +879,88 @@ class CleanixWindow(Gtk.ApplicationWindow):
         for btn in (self.cleanup_review_btn, self.memory_release_btn,
                     self.history_btn):
             btn.set_sensitive(not busy)
+        if hasattr(self, 'disks_refresh_btn'):
+            self.disks_refresh_btn.set_sensitive(not busy)
+
+    def _refresh_disks_list(self):
+        child = self.disks_list.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.disks_list.remove(child)
+            child = next_child
+
+        try:
+            disks = systeminfo._scan_disks()
+        except Exception:
+            disks = []
+
+        # Mostra primeiro os discos físicos (saúde), depois partições
+        phys = [d for d in disks if d.get('type') == 'disk' and (d.get('size_total') or 0) > 0
+                and not (d.get('name') or '').startswith(('loop', 'zram', 'ram'))]
+        parts = [d for d in disks if d.get('type') in ('part', 'lvm', 'crypt') and (d.get('size_total') or 0) > 0]
+        ordered = phys + parts
+
+        shown = 0
+        for info in ordered:
+            name = info.get('name') or ''
+            total = info.get('size_total') or 0
+            if total <= 0:
+                continue
+            model = (info.get('model') or '').strip()
+            mounted = info.get('mounted')
+            mount = (info.get('mount_point') or '').strip()
+            used = info.get('size_used') or 0
+            free = info.get('size_free') or total
+            pct = info.get('pct_used') or 0
+            is_disk = info.get('type') == 'disk'
+
+            row = hbox(8)
+            if is_disk:
+                label = f"💽 {name}" + (f" · {model}" if model and model != name else "")
+            else:
+                label = f"   └ {name}" + (f" ({mount})" if mount else "")
+            left = txt(label, 'cat-name' if is_disk else 'muted')
+            left.set_hexpand(True)
+            left.set_wrap(True)
+            row.append(left)
+
+            if mounted and mount:
+                detail = i18n.t('disks.mounted_row',
+                    mount=mount, total=systeminfo.format_bytes(total),
+                    used=systeminfo.format_bytes(used),
+                    free=systeminfo.format_bytes(free),
+                    pct=i18n.format_number(pct, 0))
+            elif is_disk and info.get('has_mounted_parts'):
+                detail = i18n.t('disks.disk_with_parts',
+                    total=systeminfo.format_bytes(total),
+                    used=systeminfo.format_bytes(used),
+                    pct=i18n.format_number(pct, 0))
+            else:
+                detail = i18n.t('disks.unmounted_row',
+                    total=systeminfo.format_bytes(total))
+            # indicador simples de saúde por uso
+            if is_disk or mounted:
+                if pct >= 90:
+                    detail = '⚠ ' + detail
+                elif pct >= 80:
+                    detail = '! ' + detail
+            row.append(txt(detail, 'muted'))
+            if is_disk:
+                smart_btn = Gtk.Button(label=i18n.t('disks.smart_check'))
+                smart_btn.add_css_class('status-btn')
+                smart_btn.connect(
+                    'clicked',
+                    lambda _b, n=name, m=model: dialogs.SmartHealthDialog(
+                        self, n, m).present())
+                row.append(smart_btn)
+            self.disks_list.append(row)
+            shown += 1
+            if shown >= 12:
+                break
+
+        if shown == 0:
+            self.disks_list.append(
+                txt(i18n.t('disks.none'), 'empty-text'))
 
     # ---- CPU ----
     def _tick_cpu(self):

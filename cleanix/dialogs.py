@@ -14,6 +14,7 @@ from gi.repository import Gdk, GLib, Gtk, Pango
 from . import (adjustments, autostart, history, i18n, memory, settings,
                systeminfo)
 from .execution import Result, execute_command
+import re
 
 log = logging.getLogger(__name__)
 
@@ -943,3 +944,141 @@ class HistoryDialog(Gtk.Window):
         confirm(self, i18n.t('history.clear.confirm.title'),
                 i18n.t('history.clear.confirm.body'),
                 i18n.t('history.clear.confirm.action'), do_clear)
+
+
+class SmartHealthDialog(Gtk.Window):
+    """Verificação SMART sob demanda para um disco físico."""
+
+    def __init__(self, parent, disk_name, disk_model=''):
+        super().__init__()
+        self.disk_name = disk_name
+        self.disk_model = disk_model or disk_name
+        self.set_title(i18n.t('smart.title'))
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(560, -1)
+        self.add_css_class('dialog')
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+
+        heading = _hbox(8)
+        heading.append(_icon('💽'))
+        heading.append(_txt(i18n.t('smart.title'), 'dialog-title'))
+        root.append(heading)
+
+        root.append(_txt(i18n.t('smart.disk_label',
+                                disk=f'{disk_name} · {self.disk_model}'),
+                         'cat-name'))
+        root.append(_txt(i18n.t('smart.subtitle'), 'muted', wrap=True))
+
+        self.overall_label = _txt('', 'cat-name')
+        self.overall_label.set_wrap(True)
+        root.append(self.overall_label)
+
+        self.attrs_label = _txt('', 'muted', wrap=True)
+        root.append(self.attrs_label)
+
+        self.details_label = _txt('', 'muted', wrap=True)
+        self.details_label.set_selectable(True)
+        root.append(self.details_label)
+
+        self.status = _txt('', 'muted', wrap=True)
+        root.append(self.status)
+
+        sep = Gtk.Separator()
+        sep.set_margin_top(4)
+        sep.set_margin_bottom(4)
+        root.append(sep)
+
+        footer = _hbox(10)
+        close = Gtk.Button(label=i18n.t('common.close'))
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        footer.append(close)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        footer.append(spacer)
+
+        self.check_btn = Gtk.Button(label=i18n.t('disks.smart_check'))
+        self.check_btn.add_css_class('btn-green')
+        self.check_btn.connect('clicked', lambda *_: self._start())
+        footer.append(self.check_btn)
+
+        root.append(footer)
+        self.set_child(root)
+
+        # inicia verificação automaticamente ao abrir
+        GLib.idle_add(self._start)
+
+    def _start(self):
+        if not self.check_btn.get_sensitive():
+            return False
+        self.check_btn.set_sensitive(False)
+        self.status.set_text(i18n.t('smart.running'))
+        self.overall_label.set_text('')
+        self.attrs_label.set_text('')
+        self.details_label.set_text('')
+        threading.Thread(target=self._work, daemon=True,
+                         name='cleanix-smart').start()
+        return False
+
+    def _work(self):
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', self.disk_name or ''):
+            GLib.idle_add(self._done_missing, i18n.t('smart.error'),
+                          i18n.t('smart.invalid_disk'))
+            return
+        if not systeminfo.smartctl_available():
+            GLib.idle_add(self._done_missing,
+                          i18n.t('smart.not_installed.title'),
+                          i18n.t('smart.not_installed.body'))
+            return
+        cmd = f'smartctl -H -A /dev/{self.disk_name}'
+        result = execute_command(cmd, as_root=True)
+        parsed = systeminfo.parse_smartctl(
+            (result.output or '') + '\n' + (result.error or ''))
+        GLib.idle_add(self._done, result, parsed)
+
+    def _done_missing(self, title, body):
+        self.check_btn.set_sensitive(True)
+        self.status.set_text('')
+        self.overall_label.set_text(title)
+        self.details_label.set_text(body)
+        return GLib.SOURCE_REMOVE
+
+    def _done(self, result, parsed):
+        self.check_btn.set_sensitive(True)
+        overall = parsed.get('overall', 'unknown')
+        overall_text = parsed.get('overall_text') or i18n.t(
+            f'smart.overall.{overall}')
+        self.overall_label.set_text(overall_text)
+        attrs = parsed.get('attributes') or []
+        # prioriza atributos críticos
+        important = [a for a in attrs if a.get('critical')]
+        lines = []
+        if important:
+            lines.append(i18n.t('smart.attrs_title'))
+            for a in important:
+                lines.append(f"- {a.get('name')}: {a.get('raw', a.get('value', ''))}")
+        else:
+            # mostra alguns atributos se houver
+            if attrs:
+                lines.append(i18n.t('smart.attrs_title'))
+                for a in attrs[:8]:
+                    lines.append(f"- {a.get('name')}: {a.get('raw', a.get('value', ''))}")
+            else:
+                lines.append(i18n.t('smart.no_attrs'))
+        self.attrs_label.set_text('\n'.join(lines))
+        detail = ''
+        if not result.ok and result.error:
+            detail = i18n.t('smart.error') + '\n' + _limit(result.error)
+        elif not result.ok and not attrs and overall == 'unknown':
+            detail = i18n.t('smart.error')
+        self.details_label.set_text(detail)
+        self.status.set_text('')
+        return GLib.SOURCE_REMOVE
+
