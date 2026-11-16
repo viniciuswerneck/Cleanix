@@ -57,6 +57,14 @@ def redact_sensitive(text: str) -> str:
     return '\n'.join(lines)
 
 
+def redact_network_macs(text: str) -> str:
+    """Mascara endereços MAC em textos de rede."""
+    if not text:
+        return ''
+    hidden = i18n.t('xray.redacted')
+    return re.sub(r'(?im)^(\s*MAC:\s*).*$', lambda m: m.group(1) + hidden, text)
+
+
 def format_kb(kb) -> str:
     """Converte a coluna Installed-Size (KB) em texto legível."""
     try:
@@ -1093,19 +1101,14 @@ def build_report_html(snapshot, bios_details='', hw_details='',
                     + esc(i18n.t('xray.unavailable')) + '</p>')
         return '<pre class="code">' + esc(text) + '</pre>'
 
-    def redact_macs(text):
-        if not redact or not text:
-            return text
-        return re.sub(
-            r'(?im)^(\s*MAC:\s*).*$',
-            r'\1' + i18n.t('xray.redacted'), text)
-
     bios_details = bios_details or bios.get('details') or ''
     hw_details = hw_details or hardware.get('details') or ''
     if redact:
         bios_details = redact_sensitive(bios_details)
         hw_details = redact_sensitive(hw_details)
-    network_details = redact_macs(network.get('details') or '')
+        network_details = redact_network_macs(network.get('details') or '')
+    else:
+        network_details = network.get('details') or ''
 
     product = fields.get('product_name') or fields.get('sys_vendor') or ''
     os_name = os_pretty_name()
@@ -1304,3 +1307,132 @@ def build_report_html(snapshot, bios_details='', hw_details='',
         + '</footer>\n'
         '</div>\n<script>' + _REPORT_JS + '</script>\n</body>\n</html>\n')
     return doc
+
+
+def build_support_summary(snapshot, bios_details='', hw_details='',
+                          bios_source='', hw_source='', priv_error='',
+                          redact=True):
+    """Monta um resumo curto em texto para suporte."""
+    snap = snapshot or {}
+    bios = snap.get('bios', {}) or {}
+    hardware = snap.get('hardware', {}) or {}
+    programs = snap.get('programs', {}) or {}
+    network = snap.get('network', {}) or {}
+    system = snap.get('system', {}) or {}
+    disks = snap.get('disks', []) or []
+    alerts = snap.get('alerts', []) or []
+    limitations = snap.get('limitations', []) or []
+    fields = bios.get('fields') or {}
+
+    bios_details = bios_details or bios.get('details') or ''
+    hw_details = hw_details or hardware.get('details') or ''
+    network_details = network.get('details') or ''
+    if redact:
+        bios_details = redact_sensitive(bios_details)
+        hw_details = redact_sensitive(hw_details)
+        network_details = redact_network_macs(network_details)
+
+    generated = datetime.now().strftime('%d/%m/%Y %H:%M')
+    product = fields.get('product_name') or fields.get('sys_vendor') or ''
+    os_name = os_pretty_name()
+    lines = []
+    lines.append('Cleanix — ' + i18n.t('xray.title'))
+    lines.append(i18n.t('xray.html.generated', date=generated))
+    lines.append('Cleanix v' + str(cleanix_version))
+    if redact:
+        lines.append('🔒 ' + i18n.t('xray.html.redacted_notice'))
+    if os_name:
+        lines.append(i18n.t('xray.section.os') + ': ' + os_name)
+    if product:
+        lines.append(i18n.t('xray.field.product_name') + ': ' + product)
+    if priv_error:
+        lines.append(i18n.t('xray.field.limitations') + ': ' + str(priv_error))
+
+    lines.append('')
+    lines.append('[' + i18n.t('xray.bios') + ']')
+    lines.append(bios.get('summary') or i18n.t('xray.unavailable'))
+
+    lines.append('')
+    lines.append('[' + i18n.t('xray.hardware') + ']')
+    lines.append(hardware.get('summary') or i18n.t('xray.unavailable'))
+
+    if bios_details.strip():
+        lines.append('')
+        lines.append('[' + i18n.t('xray.bios') + ' - detalhes]')
+        lines.append(bios_details.strip())
+    if hw_details.strip():
+        lines.append('')
+        lines.append('[' + i18n.t('xray.hardware') + ' - detalhes]')
+        lines.append(hw_details.strip())
+
+    lines.append('')
+    lines.append('[' + i18n.t('xray.section.disks') + ']')
+    if disks:
+        for disk in disks:
+            name = disk.get('name') or '?'
+            dtype = disk.get('type') or ''
+            total = disk.get('size_total') or 0
+            pct = disk.get('pct_used')
+            mount = disk.get('mount_point') or ''
+            parts = [name]
+            if dtype:
+                parts.append('(' + str(dtype) + ')')
+            if total:
+                parts.append(systeminfo.format_bytes(total))
+            if pct is not None:
+                parts.append(str(pct) + '%')
+            if mount:
+                parts.append(mount)
+            lines.append(' - ' + ' '.join(str(p) for p in parts))
+    else:
+        lines.append(i18n.t('disks.none'))
+
+    lines.append('')
+    lines.append('[' + i18n.t('xray.section.network') + ']')
+    net_summary = network.get('summary') or ''
+    if net_summary:
+        lines.append(net_summary)
+    for iface in network.get('interfaces') or []:
+        line = ' - ' + str(iface.get('name') or '')
+        state = iface.get('state') or ''
+        if state:
+            line += ' ' + state
+        addrs = iface.get('addresses') or []
+        if addrs:
+            line += ' | ' + ', '.join(str(a) for a in addrs)
+        if not redact and iface.get('mac'):
+            line += ' | MAC: ' + str(iface.get('mac'))
+        lines.append(line)
+    if not net_summary and not (network.get('interfaces') or []):
+        lines.append(i18n.t('xray.network.none'))
+    if network_details.strip():
+        lines.append(network_details.strip())
+
+    lines.append('')
+    lines.append('[' + i18n.t('xray.section.systeminfo') + ']')
+    lines.append(system.get('summary') or i18n.t('xray.unavailable'))
+
+    lines.append('')
+    lines.append('[' + i18n.t('xray.programs') + ']')
+    apt_n = len(programs.get('apt') or [])
+    snap_n = len(programs.get('snap') or [])
+    flat_n = len(programs.get('flatpak_apps') or [])
+    runtimes = programs.get('flatpak_runtimes') or 0
+    lines.append(f"APT: {apt_n} | Snap: {snap_n} | Flatpak: {flat_n} apps (+{runtimes} runtimes)")
+
+    lines.append('')
+    lines.append('[' + i18n.t('xray.html.alerts') + ']')
+    if alerts:
+        for alert in alerts:
+            level = str(alert.get('level') or 'info').upper()
+            lines.append(f" - [{level}] {alert.get('text') or ''}")
+    else:
+        lines.append(i18n.t('xray.html.no_alerts'))
+
+    if limitations:
+        lines.append('')
+        lines.append('[' + i18n.t('xray.field.limitations') + ']')
+        for item in limitations:
+            lines.append(' - ' + str(item))
+
+    return '\n'.join(lines)

@@ -297,3 +297,42 @@ class ReportHtmlV2Test(unittest.TestCase):
         self.assertNotIn('aa:bb:cc:dd:ee:ff', html)
         html = xray.build_report_html(self._snapshot(), redact=False)
         self.assertIn('aa:bb:cc:dd:ee:ff', html)
+
+
+class SupportSummaryTest(unittest.TestCase):
+    def _snapshot(self):
+        return {
+            'bios': {'summary': 'BIOS: ACME 1.0', 'details': 'b',
+                     'fields': {'product_name': 'PC X'}},
+            'hardware': {'summary': 'CPU: X | RAM: 8 GB', 'details': 'h'},
+            'programs': {'apt': [('bash', '5', '1 MB')], 'snap': [],
+                         'flatpak_apps': [], 'flatpak_runtimes': 2,
+                         'summary': 'APT: 1'},
+            'network': {'summary': '1 interfaces: enp3s0',
+                        'details': 'enp3s0 UP\n  IP: 10.0.0.2/24\n  MAC: aa:bb:cc:dd:ee:ff',
+                        'interfaces': []},
+            'system': {'summary': 'Tempo ligado: 1 h | Atualizações pendentes: 3',
+                       'details': 'd', 'updates': 3},
+            'disks': [{'name': 'sda', 'type': 'disk', 'size_total': 100,
+                       'size_used': 50, 'pct_used': 50, 'mount_point': '/'}],
+            'alerts': [{'level': 'info', 'text': '3 atualizações pendentes'}],
+            'limitations': [],
+        }
+
+    def test_summary_hides_identifiers_when_redacted(self):
+        text = xray.build_support_summary(
+            self._snapshot(), bios_details='Serial Number: SEC-1\n', redact=True)
+        self.assertNotIn('SEC-1', text)
+        self.assertNotIn('aa:bb:cc:dd:ee:ff', text)
+        self.assertIn('ACME', text)
+        self.assertIn('enp3s0', text)
+
+    def test_summary_keeps_identifiers_when_not_redacted(self):
+        text = xray.build_support_summary(
+            self._snapshot(), bios_details='Serial Number: SEC-1\n', redact=False)
+        self.assertIn('SEC-1', text)
+        self.assertIn('aa:bb:cc:dd:ee:ff', text)
+
+    def test_summary_tolerates_partial_snapshot(self):
+        text = xray.build_support_summary({})
+        self.assertTrue(isinstance(text, str) and text)
