@@ -5,7 +5,7 @@
 ## Fase 1
 - [x] 1.1 Análise de espaço: progresso/etapas, contagem e resultado parcial ao cancelar
 - [x] 1.2 Análise de espaço: exclusões de pastas e filtros (tamanho mínimo)
-- [ ] 1.3 Responsividade/consistência visual em telas densas (Otimização, Raio-X, Análise, diálogos)
+- [x] 1.3 Responsividade/consistência visual em telas densas (Otimização, Raio-X, Análise, diálogos)
 - [x] 1.4 Mensagens/estados vazios e erros mais claros (ferramentas ausentes/indisponível, o que fazer)
 - [x] 1.5 Documentação: “o que é seguro limpar” e troubleshooting no README/ajuda
 
@@ -16,6 +16,6 @@
 - [ ] 2.3 Cobertura segura adicional (categorias/ações de baixo risco, com prévia)
 
 ## Fase 3
-- [ ] 3.1 Empacotamento: metadados AppStream, manifesto Flatpak (esqueleto), revisão desktop/install
+- [x] 3.1 Empacotamento: metadados AppStream, manifesto Flatpak (esqueleto), revisão desktop/install
 - [ ] 3.2 Desempenho: ajustes na análise de espaço para pastas grandes
 - [ ] 3.3 Qualidade: ampliar testes em bordas críticas

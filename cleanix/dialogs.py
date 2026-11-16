@@ -2346,6 +2346,9 @@ class SpaceAnalysisDialog(Gtk.Window):
         self._last_large = {'files': [], 'dirs': []}
         self._last_dupes = {'groups': []}
 
+        outer = Gtk.ScrolledWindow()
+        outer.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        outer.set_vexpand(True)
         root = _vbox(10)
         root.set_margin_top(18)
         root.set_margin_bottom(18)
@@ -2426,7 +2429,8 @@ class SpaceAnalysisDialog(Gtk.Window):
         self.notebook.append_page(self.dupes_scroll, Gtk.Label(label=i18n.t('space.tab.duplicates')))
 
         root.append(self.notebook)
-        self.set_child(root)
+        outer.set_child(root)
+        self.set_child(outer)
 
     def _update_exclude_label(self):
         self.exclude_btn.set_label(f"{i18n.t('space.exclude')} ({len(self._excludes)})")

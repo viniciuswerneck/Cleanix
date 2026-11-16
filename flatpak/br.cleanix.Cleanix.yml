@@ -1,0 +1,32 @@
+app-id: br.cleanix.Cleanix
+runtime: org.gnome.Platform
+runtime-version: '46'
+sdk: org.gnome.Sdk
+command: cleanix
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=home
+  - --filesystem=/tmp
+  - --filesystem=/var/cache/apt:ro
+  - --filesystem=xdg-config/cleanix:create
+  - --filesystem=xdg-data/cleanix:create
+  - --filesystem=xdg-state/cleanix:create
+  - --talk-name=org.freedesktop.Flatpak
+modules:
+  - name: cleanix
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 cleanix/main.py /app/bin/cleanix || true
+      - mkdir -p /app/share/cleanix
+      - cp -a cleanix /app/share/cleanix/
+      - install -Dm644 data/br.cleanix.Cleanix.desktop /app/share/applications/br.cleanix.Cleanix.desktop
+      - install -Dm644 data/br.cleanix.Cleanix.svg /app/share/icons/hicolor/scalable/apps/br.cleanix.Cleanix.svg
+      - install -Dm644 data/br.cleanix.Cleanix.metainfo.xml /app/share/metainfo/br.cleanix.Cleanix.metainfo.xml
+      - printf '%s\n' '#!/bin/sh' 'exec python3 -m cleanix.main "$@"' > /app/bin/cleanix
+      - chmod +x /app/bin/cleanix
+    sources:
+      - type: dir
+        path: ..

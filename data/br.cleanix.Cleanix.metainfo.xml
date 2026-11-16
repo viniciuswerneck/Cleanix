@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>br.cleanix.Cleanix</id>
+  <name>Cleanix</name>
+  <summary>Limpeza, otimização e diagnóstico do sistema Linux</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="br.cleanix">
+    <name>Cleanix contributors</name>
+  </developer>
+  <description>
+    <p>Cleanix ajuda a manter o sistema em ordem com limpeza segura, otimização,
+    análise de espaço e diagnóstico (Raio-X), com interface GTK4 e foco em
+    transparência: nada é apagado sem prévia e confirmação.</p>
+    <ul>
+      <li>Limpeza de categorias seguras com confirmação e histórico</li>
+      <li>Otimização com prévia (APT, Snap, Flatpak, journal, fstrim)</li>
+      <li>Raio-X, relatórios (HTML/JSON/CSV), snapshots e comparação</li>
+      <li>Análise de arquivos grandes e duplicados, com envio à Lixeira opcional e confirmado</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">br.cleanix.Cleanix.desktop</launchable>
+  <provides>
+    <binary>cleanix</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+    <category>System</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+</component>
