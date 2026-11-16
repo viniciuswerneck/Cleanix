@@ -63,3 +63,50 @@ class SnapshotStorageTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CompareSnapshotsTest(unittest.TestCase):
+    def _base(self):
+        return {
+            'meta': {}, 'bios': {'summary': 'BIOS A'}, 'hardware': {'summary': 'HW A'},
+            'programs': {
+                'apt': [{'name': 'bash', 'version': '5.1', 'size': ''},
+                        {'name': 'vim', 'version': '9.0', 'size': ''}],
+                'snap': [], 'flatpak_apps': [], 'flatpak_runtimes': 0, 'summary': ''},
+            'disks': [{'name': 'sda5', 'mount_point': '/', 'pct_used': 40, 'size_used': 100}],
+            'system': {'summary': 's', 'updates': 2},
+            'alerts': [{'level': 'info', 'text': '2 atualizações pendentes'}],
+        }
+
+    def _new(self):
+        return {
+            'meta': {}, 'bios': {'summary': 'BIOS B'}, 'hardware': {'summary': 'HW A'},
+            'programs': {
+                'apt': [{'name': 'bash', 'version': '5.2', 'size': ''},
+                        {'name': 'git', 'version': '2.4', 'size': ''}],
+                'snap': [], 'flatpak_apps': [], 'flatpak_runtimes': 0, 'summary': ''},
+            'disks': [{'name': 'sda5', 'mount_point': '/', 'pct_used': 55, 'size_used': 140}],
+            'system': {'summary': 's', 'updates': 0},
+            'alerts': [],
+        }
+
+    def test_programs_diff(self):
+        diff = snapshots.compare_snapshots(self._base(), self._new())
+        p = diff['programs']
+        self.assertIn('git', p['added']['apt'])
+        self.assertIn('vim', p['removed']['apt'])
+        self.assertTrue(any(x['name'] == 'bash' for x in p['changed']['apt']))
+
+    def test_disks_system_alerts_bios(self):
+        diff = snapshots.compare_snapshots(self._base(), self._new())
+        self.assertTrue(diff['disks'])
+        self.assertEqual(diff['system']['updates']['old'], 2)
+        self.assertEqual(diff['system']['updates']['new'], 0)
+        self.assertIn('2 atualizações pendentes', diff['alerts']['resolved'])
+        self.assertTrue(diff['bios']['changed'])
+        self.assertFalse(diff['hardware']['changed'])
+
+    def test_tolerates_missing(self):
+        diff = snapshots.compare_snapshots({}, {'programs': {}})
+        self.assertIn('programs', diff)
+        self.assertIsInstance(diff['programs']['added'], dict)
