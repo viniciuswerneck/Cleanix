@@ -13,7 +13,7 @@ gi.require_version('Gdk', '4.0')
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import (adjustments, autostart, history, i18n, memory, optimizer, settings,
-               smart_history, systeminfo, xray)
+               smart_history, snapshots, systeminfo, xray)
 from .execution import Result, execute_command
 import re
 
@@ -1232,6 +1232,181 @@ class SmartHealthDialog(Gtk.Window):
         return GLib.SOURCE_REMOVE
 
 
+
+class CompareSnapshotsDialog(Gtk.Window):
+    def __init__(self, parent, current_provider=None):
+        super().__init__()
+        self.set_title(i18n.t('xray.compare.title'))
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(720, 520)
+        self.add_css_class('dialog')
+        self._current_provider = current_provider
+        self._items = snapshots.list_snapshots()
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+        root.append(_txt(i18n.t('xray.compare.title'), 'dialog-title'))
+        root.append(_txt(i18n.t('xray.compare.subtitle'), 'muted', wrap=True))
+
+        controls = _hbox(10)
+        controls.set_homogeneous(True)
+
+        base_box = _vbox(4)
+        base_box.append(_txt(i18n.t('xray.compare.base'), 'cat-name'))
+        self.base_combo = Gtk.ComboBoxText()
+        base_box.append(self.base_combo)
+        controls.append(base_box)
+
+        target_box = _vbox(4)
+        target_box.append(_txt(i18n.t('xray.compare.target'), 'cat-name'))
+        self.target_combo = Gtk.ComboBoxText()
+        target_box.append(self.target_combo)
+        controls.append(target_box)
+        root.append(controls)
+
+        self._populate_combos()
+
+        run_btn = Gtk.Button(label=i18n.t('xray.compare.run'))
+        run_btn.add_css_class('btn-green')
+        run_btn.connect('clicked', lambda *_: self._run_compare())
+        root.append(run_btn)
+
+        self.area = Gtk.TextView()
+        self.area.set_editable(False)
+        self.area.set_cursor_visible(False)
+        self.area.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.area.set_left_margin(8)
+        self.area.set_right_margin(8)
+        self.area.set_top_margin(8)
+        self.area.set_bottom_margin(8)
+        self.area.add_css_class('xray-detail')
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_vexpand(True)
+        scroll.set_min_content_height(280)
+        scroll.set_child(self.area)
+        root.append(scroll)
+
+        close = Gtk.Button(label=i18n.t('common.close'))
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        root.append(close)
+
+        self.set_child(root)
+        if self._items:
+            self._run_compare()
+        else:
+            self._set_text(i18n.t('xray.compare.none'))
+
+    def _populate_combos(self):
+        def label_for(item):
+            g = item.get('generated') or ''
+            prod = item.get('product') or item.get('os') or ''
+            return (g + (' — ' + prod if prod else '')).strip() or item.get('path', '')
+        self._choices = [('__current__', i18n.t('xray.compare.current'))]
+        for item in self._items:
+            self._choices.append((item['path'], label_for(item)))
+        for combo in (self.base_combo, self.target_combo):
+            combo.remove_all()
+            for _, label in self._choices:
+                combo.append_text(label)
+        if len(self._choices) > 1:
+            self.base_combo.set_active(1)
+            self.target_combo.set_active(0)
+        else:
+            self.base_combo.set_active(0)
+            self.target_combo.set_active(0)
+
+    def _set_text(self, text):
+        self.area.get_buffer().set_text(text or '')
+
+    def _get_data(self, idx):
+        if idx < 0 or idx >= len(self._choices):
+            return None
+        key = self._choices[idx][0]
+        if key == '__current__':
+            if self._current_provider:
+                try:
+                    return self._current_provider()
+                except Exception:
+                    return None
+            return None
+        try:
+            return snapshots.load_snapshot(key)
+        except Exception:
+            return None
+
+    def _run_compare(self):
+        if not self._items and self._choices and len(self._choices) <= 1:
+            self._set_text(i18n.t('xray.compare.no_saved'))
+            return
+        base = self._get_data(self.base_combo.get_active())
+        target = self._get_data(self.target_combo.get_active())
+        if base is None or target is None:
+            self._set_text(i18n.t('xray.unavailable'))
+            return
+        diff = snapshots.compare_snapshots(base, target)
+        self._set_text(self._format_diff(diff))
+
+    def _format_diff(self, diff):
+        lines = []
+        # programs
+        p = diff.get('programs') or {}
+        prog_lines = []
+        for origin in ('apt', 'snap', 'flatpak_apps'):
+            added = (p.get('added') or {}).get(origin) or []
+            removed = (p.get('removed') or {}).get(origin) or []
+            changed = (p.get('changed') or {}).get(origin) or []
+            if added:
+                prog_lines.append(f"  [{origin}] {i18n.t('xray.compare.added')}: " + ', '.join(added[:20]) + ('…' if len(added) > 20 else ''))
+            if removed:
+                prog_lines.append(f"  [{origin}] {i18n.t('xray.compare.removed')}: " + ', '.join(removed[:20]) + ('…' if len(removed) > 20 else ''))
+            if changed:
+                names = [f"{c['name']} ({c.get('old','')} → {c.get('new','')})" for c in changed[:20]]
+                prog_lines.append(f"  [{origin}] {i18n.t('xray.compare.changed')}: " + ', '.join(names) + ('…' if len(changed) > 20 else ''))
+        if prog_lines:
+            lines.append('[' + i18n.t('xray.compare.programs') + ']')
+            lines.extend(prog_lines)
+        # disks
+        disks = diff.get('disks') or []
+        if disks:
+            lines.append('')
+            lines.append('[' + i18n.t('xray.compare.disks') + ']')
+            for d in disks:
+                name = (d.get('name') or '') + (' ' + d.get('mount') if d.get('mount') else '')
+                lines.append(f"  • {name}: {d.get('old_pct','?')}% → {d.get('new_pct','?')}%")
+        # system
+        sysc = (diff.get('system') or {}).get('updates') or {}
+        if sysc.get('old') != sysc.get('new') and not (sysc.get('old') is None and sysc.get('new') is None):
+            lines.append('')
+            lines.append('[' + i18n.t('xray.compare.system') + ']')
+            lines.append(f"  • {i18n.t('xray.compare.updates')}: {sysc.get('old')} → {sysc.get('new')}")
+        # bios/hardware
+        if (diff.get('bios') or {}).get('changed'):
+            lines.append('')
+            lines.append('• ' + i18n.t('xray.compare.bios_changed'))
+        if (diff.get('hardware') or {}).get('changed'):
+            lines.append('• ' + i18n.t('xray.compare.hardware_changed'))
+        # alerts
+        alerts = diff.get('alerts') or {}
+        if alerts.get('new') or alerts.get('resolved'):
+            lines.append('')
+            lines.append('[' + i18n.t('xray.compare.alerts') + ']')
+            if alerts.get('new'):
+                for a in alerts['new']:
+                    lines.append(f"  + {a}")
+            if alerts.get('resolved'):
+                for a in alerts['resolved']:
+                    lines.append(f"  - {a}")
+        if not lines:
+            return i18n.t('xray.compare.no_changes')
+        return '\n'.join(lines)
+
+
 class XRayDialog(Gtk.Window):
     """Raio-X da máquina: resumo por tópicos e detalhes expansíveis."""
 
@@ -1330,6 +1505,16 @@ class XRayDialog(Gtk.Window):
         self.copy_summary_btn.add_css_class('xray-action')
         self.copy_summary_btn.connect('clicked', lambda *_: self._copy_support_summary())
         actions.append(self.copy_summary_btn)
+        self.save_snapshot_btn = Gtk.Button(label=i18n.t('xray.snapshot.save'))
+        self.save_snapshot_btn.add_css_class('btn-secondary')
+        self.save_snapshot_btn.add_css_class('xray-action')
+        self.save_snapshot_btn.connect('clicked', lambda *_: self._save_snapshot())
+        actions.append(self.save_snapshot_btn)
+        self.compare_btn = Gtk.Button(label=i18n.t('xray.snapshot.compare'))
+        self.compare_btn.add_css_class('btn-secondary')
+        self.compare_btn.add_css_class('xray-action')
+        self.compare_btn.connect('clicked', lambda *_: self._open_compare())
+        actions.append(self.compare_btn)
         root.append(actions)
 
         self.status = _txt('', 'muted', wrap=True)
@@ -1702,6 +1887,8 @@ class XRayDialog(Gtk.Window):
         self.export_json_btn.set_sensitive(not busy)
         self.export_csv_btn.set_sensitive(not busy)
         self.copy_summary_btn.set_sensitive(not busy)
+        self.save_snapshot_btn.set_sensitive(not busy)
+        self.compare_btn.set_sensitive(not busy)
         if busy:
             self.spinner.start()
             self._set_status(i18n.t('xray.collecting'))
@@ -2047,6 +2234,34 @@ class XRayDialog(Gtk.Window):
         if kind == 'csv':
             return xray.build_report_csv(snap, **kwargs)
         return xray.build_report_html(snap, **kwargs)
+
+    def _current_snapshot_data(self):
+        snap = self._snapshot or {}
+        bios = snap.get('bios', {}) or {}
+        hw = snap.get('hardware', {}) or {}
+        return xray.build_report_data(
+            snap,
+            bios_details=self._bios_detail_text or bios.get('details') or '',
+            hw_details=self._hw_detail_text or hw.get('details') or '',
+            bios_source=self._bios_source_text,
+            hw_source=self._hw_source_text,
+            redact=self.redact_check.get_active(),
+        )
+
+    def _save_snapshot(self):
+        try:
+            data = self._current_snapshot_data()
+            path = snapshots.save_snapshot(data)
+            show_info(self, i18n.t('xray.snapshot.saved'),
+                      i18n.t('xray.snapshot.saved_body', path=str(path)))
+            self._set_status(i18n.t('xray.snapshot.saved'))
+        except Exception as exc:
+            show_info(self, i18n.t('xray.export_error_title'),
+                      i18n.t('xray.export_error_body', detail=str(exc)))
+
+    def _open_compare(self):
+        dialog = CompareSnapshotsDialog(self, current_provider=self._current_snapshot_data)
+        dialog.present()
 
     def _build_export_html(self, priv_error=''):
         return self._build_export_content('html', priv_error)
