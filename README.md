@@ -13,7 +13,8 @@ do sistema.
 
 - Dados reais de disco, memória e CPU, atualizados em segundo plano.
 - Anel de saúde baseado no espaço livre em disco (verde, amarelo ou vermelho).
-- Rosca de uso do disco e gráfico de linha com as últimas amostras de CPU.
+- Rosca de uso do disco e painel **“Uso de CPU”** com o gráfico de linha das
+  últimas amostras.
 - Painel de memória RAM na tela inicial, com uso, disponível, cache e gráfico
   ao vivo, além de um atalho para liberar o cache.
 - Varredura segura de cinco categorias:
@@ -22,6 +23,11 @@ do sistema.
   - cache dos navegadores (Chrome, Chromium, Firefox, Brave, Edge e Vivaldi);
   - arquivos temporários do usuário em `/tmp`;
   - cache de pacotes do APT (com senha de administrador na hora de limpar).
+- Menu lateral em português, com uma entrada por ação e “Ajuda e Sobre” unificado.
+- Ação principal **“Revisar e limpar”** no topo, com a lista de categorias
+  somente leitura na tela inicial (a seleção acontece no diálogo).
+- Interface em **português, inglês e espanhol**, com troca imediata em
+  Configurações.
 - Diálogo de detalhes com tamanho e número de arquivos por categoria.
 - Confirmação explícita antes de remover, com aviso quando há navegadores
   selecionados.
@@ -32,8 +38,10 @@ do sistema.
 - **Otimizador** com ações reais: limpeza do APT, journal vacuum, `fstrim`,
   liberação do cache da memória RAM em um diálogo próprio e gerenciador de
   aplicativos de inicialização.
-- **Ajustes** aplicados via `gsettings` (animações e privacidade).
-- **Configurações** com "confirmar antes de limpar" e "guardar histórico".
+- **Ajustes** com switches reais para animações do GNOME e limpeza automática
+  de lixeira/temporários, aplicados via `gsettings`.
+- **Configurações** com idioma da interface, "confirmar antes de limpar" e
+  "guardar histórico".
 - Ações administrativas usam `pkexec`, que abre a janela de senha do sistema.
 - Log das ações em `~/.local/state/cleanix/cleanix.log`.
 
@@ -71,6 +79,34 @@ Ubuntu.
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+## Estrutura
+
+- `cleanix/cleanixwindow.py` — tela inicial, menu e varredura.
+- `cleanix/dialogs.py` — diálogos de limpeza, otimizador, ajustes, histórico e
+  configurações.
+- `cleanix/scanner.py` — varredura e remoção segura.
+- `cleanix/execution.py` — comandos locais e administrativos via `pkexec`.
+- `cleanix/memory.py` — memória RAM e liberação do cache.
+- `cleanix/adjustments.py` — ajustes do GNOME via `gsettings`.
+- `cleanix/charts.py` — gráficos Cairo.
+- `cleanix/i18n.py` + `cleanix/locale/` — traduções e formatação por idioma.
+
+## Idiomas
+
+O Cleanix detecta o idioma do sistema (`LANG`/`LC_ALL`) e abre em português,
+inglês ou espanhol. Em **Configurações → Idioma da interface** a troca é
+imediata, sem reiniciar o app, e a escolha fica salva em
+`~/.config/cleanix/config.json`.
+
+Todos os textos da interface ficam em catálogos JSON planos:
+
+- `cleanix/i18n.py` — camada de tradução (`t`, `tn`), números e datas por idioma;
+- `cleanix/locale/pt_BR.json`, `en.json`, `es.json` — mesmas chaves nos três
+  arquivos.
+
+Para adicionar ou corrigir um texto, edite a mesma chave nos três catálogos.
+Não há etapa de build: o app lê os JSON direto do código.
 
 ## Segurança
 

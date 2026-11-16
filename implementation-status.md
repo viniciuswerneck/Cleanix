@@ -16,32 +16,48 @@ está implementada com allowlist, confirmação e histórico.
 | `scanner.py` | Varredura e remoção segura (allowlist + cache do APT) |
 | `execution.py` | Comandos locais e administrativos via `pkexec` |
 | `memory.py` | Leitura de `/proc/meminfo` e liberação do cache da RAM |
-| `systeminfo.py` | Disco, memória, CPU e formatação pt-BR |
+| `systeminfo.py` | Disco, memória, CPU, distribuição e formatação localizada |
 | `history.py` | Histórico persistente em JSON |
 | `autostart.py` | Leitura e ativação de apps de inicialização |
 | `settings.py` | Preferências em `~/.config/cleanix/config.json` |
+| `adjustments.py` | Ajustes do GNOME via `gsettings` |
+| `i18n.py` | Traduções, números e datas por idioma |
+| `locale/` | Catálogos `pt_BR.json`, `en.json` e `es.json` |
 | `charts.py` | Widgets Cairo (anel, rosca, linha, barra) |
 | `styles.css` | Tema GTK4 (cores, tipografia, cards, botões) |
-| `tests/` | Testes `unittest` de sistema, scanner e histórico |
+| `tests/` | Testes `unittest` de sistema, scanner, histórico e traduções |
 | `tools/screenshot.py` | Captura offscreen para verificação visual |
+| `tools/check_layout.py` | Verifica a estrutura da tela inicial |
+| `tools/check_language.py` | Verifica a troca de idioma sem reiniciar |
 
 ## Interface
 
 - Barra superior: logo de vassoura, "Cleanix", subtítulo, botões de janela
   (fechar em círculo laranja com X).
-- Menu lateral 228px: Início, Cleaner, Optimizer, Adjustments, Histórico,
-  Sobre + rodapé Ubuntu 22.04 LTS.
+- Menu lateral 228px: Início, Limpeza, Otimização, Ajustes, Histórico e
+  Ajuda e Sobre, com o nome e a versão reais da distribuição no rodapé.
 - Bloco 1 (Saúde): anel que muda de cor e glifo conforme o espaço livre em
   disco, e métricas reais de disco, memória e CPU.
-- Painel de Memória RAM: uso atual, disponível, cache, gráfico ao vivo com as
+- Bloco 2 (Limpeza): Espaço Recuperável em destaque, botão "Revisar e limpar",
+  lista somente leitura das categorias e rosca de distribuição. A seleção
+  acontece no diálogo de limpeza.
+- Bloco 3 (Memória RAM): uso atual, disponível, cache, gráfico ao vivo com as
   últimas amostras e botão "Liberar memória".
-- Bloco 2: Espaço Recuperável real, rosca de uso do disco e gráfico de linha
-  com amostras de CPU.
-- Bloco 3: Limpeza Inteligente (abre os detalhes), Otimização e Ajustes
-  (abrem seus diálogos).
-- Bloco 4: Categorias de Limpeza com tamanhos reais e checkboxes interativos;
-  Últimas Ações com as três limpezas mais recentes.
-- Barra inferior de status com Configurações e Ajuda.
+- Bloco 4 (Disco e CPU): rosca de uso do disco com legenda usada/livre/total e
+  painel "Uso de CPU" com gráfico de linha e o texto "X% agora · N núcleos".
+- Bloco 5: Últimas Ações com as três limpezas mais recentes e link para o
+  histórico.
+- Barra inferior de status com Configurações.
+
+## Idiomas
+
+- Catálogos JSON em `cleanix/locale/` (pt-BR, inglês e espanhol), com a mesma
+  chave nos três arquivos.
+- Idioma inicial detectado de `LANG`/`LC_ALL`; padrão português.
+- Seletor em Configurações troca o idioma na hora e reconstrói a janela,
+  preservando dados já escaneados e os gráficos.
+- Números, datas, status, diálogos e mensagens de erro próprias também seguem
+  o idioma. Apenas a saída bruta dos comandos e os logs ficam como estão.
 
 ## Funcionalidades reais
 
@@ -66,10 +82,10 @@ está implementada com allowlist, confirmação e histórico.
   O painel da tela inicial atualiza o uso e o gráfico a cada 2 segundos.
 - **Startup Apps:** lista `/etc/xdg/autostart` e `~/.config/autostart` e
   ativa/desativa por interruptor, sem root (override `Hidden=true`).
-- **Ajustes:** animações do GNOME e limpeza automática de lixeira/temporários,
-  aplicados por `gsettings` como o próprio usuário.
-- **Configurações:** "confirmar antes de limpar" e "guardar histórico",
-  salvos em `~/.config/cleanix/config.json`.
+- **Ajustes:** switches reais para animações do GNOME e limpeza automática de
+  lixeira/temporários, aplicados por `gsettings` como o próprio usuário.
+- **Configurações:** idioma da interface, "confirmar antes de limpar" e
+  "guardar histórico", salvos em `~/.config/cleanix/config.json`.
 - **Log:** tudo em `~/.local/state/cleanix/cleanix.log`.
 - **Segurança:** allowlist fechada, `realpath`/`commonpath`, sem seguir links
   simbólicos, raízes preservadas, `/tmp` com idade mínima de 10 minutos e

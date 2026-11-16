@@ -1,8 +1,14 @@
 [Desktop Entry]
 Type=Application
 Name=Cleanix
+Name[en]=Cleanix
+Name[es]=Cleanix
 GenericName=Limpeza do Sistema
+GenericName[en]=System Cleanup
+GenericName[es]=Limpieza del Sistema
 Comment=Limpeza segura, otimização e ajustes para o Ubuntu
+Comment[en]=Safe cleanup, optimization and adjustments for Ubuntu
+Comment[es]=Limpieza segura, optimización y ajustes para Ubuntu
 Exec=python3 -m cleanix.main
 Path=@PROJECT_DIR@
 Icon=br.cleanix.Cleanix
