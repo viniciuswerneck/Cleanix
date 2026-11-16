@@ -6,6 +6,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from . import i18n
+
 UNITS = ("B", "KB", "MB", "GB", "TB")
 
 
@@ -26,9 +28,8 @@ class MemInfo:
 
 
 def _format_number(value: float, decimals: int) -> str:
-    """Formata número com separador de milhar e decimal no padrão pt-BR."""
-    text = f"{value:,.{decimals}f}"
-    return text.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+    """Formata número no separador do idioma escolhido."""
+    return i18n.format_number(value, decimals)
 
 
 def format_bytes(n: int) -> str:
@@ -54,6 +55,40 @@ def format_bytes(n: int) -> str:
 
 def format_percent(value: float, decimals: int = 0) -> str:
     return f"{_format_number(value, decimals)}%"
+
+
+def _read_os_release(path: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        text = open(path, encoding='utf-8', errors='replace').read()
+    except OSError:
+        return values
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, raw = line.split('=', 1)
+        values[key.strip()] = raw.strip().strip('"')
+    return values
+
+
+def distro_info(path: str = '/etc/os-release') -> tuple[str, str]:
+    """Nome curto e versão da distribuição (para o rodapé)."""
+    values = _read_os_release(path)
+    name = values.get('NAME') or 'Linux'
+    version = values.get('VERSION_ID', '')
+    return name, version
+
+
+def distro_name(path: str = '/etc/os-release') -> str:
+    """Nome completo da distribuição (PRETTY_NAME quando existe)."""
+    values = _read_os_release(path)
+    pretty = values.get('PRETTY_NAME')
+    if pretty:
+        return pretty
+    name = values.get('NAME') or 'Linux'
+    version = values.get('VERSION_ID', '')
+    return f'{name} {version}'.strip()
 
 
 def get_disk_info(path: str = "/") -> DiskInfo:
