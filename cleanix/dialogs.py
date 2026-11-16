@@ -243,10 +243,10 @@ class _ActionDialog(Gtk.Window):
         self.set_title(heading)
         self.set_modal(True)
         self.set_transient_for(parent)
-        self.set_default_size(560, -1)
+        self.set_default_size(720, -1)
         self.add_css_class('dialog')
 
-        root = _vbox(10)
+        root = _vbox(12)
         root.set_margin_top(18)
         root.set_margin_bottom(18)
         root.set_margin_start(18)
@@ -256,8 +256,18 @@ class _ActionDialog(Gtk.Window):
         if self.subtitle_key:
             root.append(_txt(i18n.t(self.subtitle_key), 'muted', wrap=True))
 
+        flow = Gtk.FlowBox()
+        flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        flow.set_max_children_per_line(2)
+        flow.set_min_children_per_line(1)
+        flow.set_column_spacing(12)
+        flow.set_row_spacing(12)
+        flow.set_homogeneous(True)
+        flow.set_valign(Gtk.Align.START)
+
         for action in self.actions:
-            root.append(self._action_row(action))
+            flow.insert(self._action_card(action), -1)
+        root.append(flow)
 
         separator = Gtk.Separator()
         separator.set_margin_top(4)
@@ -275,25 +285,32 @@ class _ActionDialog(Gtk.Window):
 
         self.set_child(root)
 
-    def _action_row(self, action):
-        row = _hbox(10)
-        row.add_css_class('dialog-row')
+    def _action_card(self, action):
+        card = _vbox(8)
+        card.add_css_class('card')
+        card.set_hexpand(True)
+
+        title = _txt(i18n.t(action['label_key']), 'cat-name', wrap=True)
+        card.append(title)
+
+        description = _txt(i18n.t(action['description_key']), 'muted', wrap=True)
+        description.set_vexpand(True)
+        card.append(description)
+
+        spacer = Gtk.Box()
+        spacer.set_vexpand(True)
+        card.append(spacer)
 
         button = Gtk.Button(label=i18n.t(action['label_key']))
         button.add_css_class('btn-green')
+        button.set_halign(Gtk.Align.START)
         if action.get('dialog') is not None:
             button.connect('clicked', lambda *_: action['dialog'](self))
         else:
             button.connect('clicked', self._on_clicked, action)
-        row.append(button)
+        card.append(button)
         self._buttons[action['label_key']] = button
-
-        description = _txt(i18n.t(action['description_key']), 'cat-name')
-        description.set_hexpand(True)
-        description.set_valign(Gtk.Align.CENTER)
-        description.set_wrap(True)
-        row.append(description)
-        return row
+        return card
 
     def _on_clicked(self, button, action):
         label = i18n.t(action['label_key'])
@@ -307,6 +324,7 @@ class _ActionDialog(Gtk.Window):
         label = i18n.t(action['label_key'])
         button.set_label(i18n.t('action.running'))
         button.set_sensitive(False)
+        self.status.set_visible(True)
         self.status.set_text(i18n.t('action.status.running', label=label))
 
         def work():
@@ -320,6 +338,7 @@ class _ActionDialog(Gtk.Window):
         button.set_label(label)
         button.set_sensitive(True)
 
+        self.status.set_visible(True)
         if result.ok:
             self.status.set_text(i18n.t('action.status.done', label=label))
             body = result.output or i18n.t('action.done.body')
