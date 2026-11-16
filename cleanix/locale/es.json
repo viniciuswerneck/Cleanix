@@ -1,0 +1,9 @@
+{
+  "app.name": "Cleanix",
+  "app.subtitle": "Tu sistema siempre en óptima forma",
+  "common.close": "Cerrar",
+  "common.cancel": "Cancelar",
+  "date.pattern": "%d/%m/%Y %H:%M",
+  "files.removed.one": "{n} archivo eliminado",
+  "files.removed.other": "{n} archivos eliminados"
+}
