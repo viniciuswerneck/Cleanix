@@ -23,6 +23,10 @@ do sistema.
   (avaliação PASSOU/FALHOU/indisponível e atributos importantes), com senha de
   administrador quando necessário. Se o `smartmontools` não estiver instalado,
   o app orienta e oferece instalação com um clique (ou uso do app Discos).
+- **Raio-X da máquina**: resumo rápido por tópicos (BIOS/sistema, hardware e
+  programas instalados) com detalhes expansíveis, coleta sob demanda (com opção
+  de detalhes completos via administrador) e programas separados por APT, Snap
+  e Flatpak (com busca).
 - Painel de memória RAM na tela inicial, com uso e capacidade total,
   disponível, cache e gráfico ao vivo, além de um atalho para liberar o cache.
 - Varredura segura de cinco categorias:
