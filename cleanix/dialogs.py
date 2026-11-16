@@ -875,6 +875,30 @@ class SettingsDialog(Gtk.Window):
             i18n.t('settings.history.title'),
             i18n.t('settings.history.desc'), self._history_switch))
 
+        self._reminder_switch = Gtk.Switch()
+        self._reminder_switch.set_active(self._settings.reminder_enabled)
+        self._reminder_switch.set_valign(Gtk.Align.CENTER)
+        self._reminder_switch.connect('notify::active', self._on_toggle)
+        root.append(self._row(
+            i18n.t('settings.reminder.enable'),
+            i18n.t('settings.reminder.enable_desc'), self._reminder_switch))
+
+        self._reminder_intervals = [7, 14, 30]
+        labels = [i18n.t('settings.reminder.weekly'),
+                  i18n.t('settings.reminder.biweekly'),
+                  i18n.t('settings.reminder.monthly')]
+        self._reminder_dropdown = Gtk.DropDown.new_from_strings(labels)
+        try:
+            idx = self._reminder_intervals.index(self._settings.reminder_interval_days)
+        except ValueError:
+            idx = 0
+        self._reminder_dropdown.set_selected(idx)
+        self._reminder_dropdown.set_valign(Gtk.Align.CENTER)
+        self._reminder_dropdown.connect('notify::selected', self._on_toggle)
+        root.append(self._row(
+            i18n.t('settings.reminder.interval'),
+            i18n.t('settings.reminder.desc'), self._reminder_dropdown))
+
         self.status = _txt('', 'muted', wrap=True)
         root.append(self.status)
 
@@ -903,14 +927,22 @@ class SettingsDialog(Gtk.Window):
         row.append(control)
         return row
 
-    def _on_toggle(self, _switch, _pspec):
-        if self._recording:
-            return
-        self._settings = settings.Settings(
+    def _current_settings(self):
+        idx = self._reminder_dropdown.get_selected()
+        if idx < 0 or idx >= len(self._reminder_intervals):
+            idx = 0
+        return settings.Settings(
             confirm_before_clean=self._confirm_switch.get_active(),
             keep_history=self._history_switch.get_active(),
             language=self._settings.language,
+            reminder_enabled=self._reminder_switch.get_active(),
+            reminder_interval_days=self._reminder_intervals[idx],
         )
+
+    def _on_toggle(self, _switch, _pspec):
+        if self._recording:
+            return
+        self._settings = self._current_settings()
         try:
             settings.save_settings(self._settings)
         except OSError as exc:
@@ -935,6 +967,9 @@ class SettingsDialog(Gtk.Window):
             confirm_before_clean=self._confirm_switch.get_active(),
             keep_history=self._history_switch.get_active(),
             language=code,
+            reminder_enabled=self._reminder_switch.get_active(),
+            reminder_interval_days=self._reminder_intervals[
+                max(0, min(self._reminder_dropdown.get_selected(), len(self._reminder_intervals)-1))],
         )
         try:
             settings.save_settings(new_settings)

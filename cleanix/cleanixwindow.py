@@ -12,7 +12,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk, GLib, Pango
 
-from . import (charts, dialogs, history, i18n, memory, scanner, settings,
+from . import (charts, dialogs, history, i18n, memory, reminders, scanner, settings,
               systeminfo)
 
 CATEGORY_COLORS = ('#3295F5', '#20C957', '#F4510B', '#914CF5', '#F5A623')
@@ -117,9 +117,11 @@ class CleanixWindow(Gtk.ApplicationWindow):
         self._setup_css()
         self._build_ui()
         self._fit_to_screen()
+        self._reminder_checked = False
 
         GLib.timeout_add(500, self._start_scan)
         GLib.timeout_add(2000, self._tick_cpu)
+        GLib.timeout_add(1500, self._check_reminder_once)
 
     def _fit_to_screen(self):
         """Make sure the window fits the usable screen area (workarea),
@@ -1085,6 +1087,26 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
     def _open_space_analysis(self):
         dialogs.SpaceAnalysisDialog(self).present()
+
+
+    def _check_reminder_once(self):
+        if getattr(self, '_reminder_checked', False):
+            return GLib.SOURCE_REMOVE
+        self._reminder_checked = True
+        try:
+            st = settings.load_settings()
+            if reminders.is_reminder_due(st.reminder_interval_days,
+                                         enabled=st.reminder_enabled):
+                dialogs.confirm(
+                    self,
+                    i18n.t('reminder.title'),
+                    i18n.t('reminder.body'),
+                    i18n.t('reminder.open'),
+                    lambda: self._open_details(),
+                )
+        except Exception:
+            pass
+        return GLib.SOURCE_REMOVE
 
     def _show_help_about(self):
         title, body = dialogs.help_about_text()

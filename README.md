@@ -73,8 +73,10 @@ do sistema.
   nada é apagado automaticamente.
 - **Ajustes** com switches reais para animações do GNOME e limpeza automática
   de lixeira/temporários, aplicados via `gsettings`.
-- **Configurações** com idioma da interface, "confirmar antes de limpar" e
-  "guardar histórico".
+- **Configurações** com idioma da interface, "confirmar antes de limpar",
+  "guardar histórico" e **lembretes de manutenção** (opt-in, desligado por
+  padrão): aviso periódico no app para revisar a limpeza, sem apagar nada
+  automaticamente.
 - Ações administrativas usam `pkexec`, que abre a janela de senha do sistema.
 - Log das ações em `~/.local/state/cleanix/cleanix.log`.
 

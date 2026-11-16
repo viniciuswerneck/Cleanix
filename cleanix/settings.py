@@ -15,6 +15,8 @@ class Settings:
     confirm_before_clean: bool = True
     keep_history: bool = True
     language: str = ""
+    reminder_enabled: bool = False
+    reminder_interval_days: int = 7
 
 
 def config_path() -> Path:
@@ -35,10 +37,18 @@ def load_settings(path: Path | None = None) -> Settings:
         return Settings()
 
     values = {}
+    allowed_intervals = (7, 14, 30)
     for field, default in asdict(Settings()).items():
         value = data.get(field, default)
         if isinstance(default, bool):
             values[field] = value if isinstance(value, bool) else default
+        elif isinstance(default, int) and not isinstance(default, bool):
+            if isinstance(value, bool) or not isinstance(value, int):
+                values[field] = default
+            elif field == "reminder_interval_days":
+                values[field] = value if value in allowed_intervals else default
+            else:
+                values[field] = value
         elif isinstance(default, str):
             if not isinstance(value, str):
                 values[field] = default
