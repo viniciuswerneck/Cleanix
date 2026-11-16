@@ -13,10 +13,18 @@ do sistema.
 
 - Dados reais de disco, memória e CPU, atualizados em segundo plano.
 - Anel de saúde baseado no espaço livre em disco (verde, amarelo ou vermelho).
-- Rosca de uso do disco e painel **“Uso de CPU”** com o gráfico de linha das
-  últimas amostras.
-- Painel de memória RAM na tela inicial, com uso, disponível, cache e gráfico
-  ao vivo, além de um atalho para liberar o cache.
+- Rosca de uso do disco do sistema e painel **“Uso de CPU”** com o gráfico de
+  linha das últimas amostras.
+- Seção **Discos conectados** na tela inicial: lista discos físicos e partições
+  (inclusive não montados/externos), agrupados por disco, com capacidade total,
+  usado/livre, percentual e ponto de montagem quando disponível, além de botão
+  **Atualizar**.
+- **Saúde (SMART)** sob demanda por disco físico: verificação via `smartctl`
+  (avaliação PASSOU/FALHOU/indisponível e atributos importantes), com senha de
+  administrador quando necessário. Se o `smartmontools` não estiver instalado,
+  o app orienta e oferece instalação com um clique (ou uso do app Discos).
+- Painel de memória RAM na tela inicial, com uso e capacidade total,
+  disponível, cache e gráfico ao vivo, além de um atalho para liberar o cache.
 - Varredura segura de cinco categorias:
   - Lixeira do sistema;
   - miniaturas de imagens;
@@ -58,6 +66,10 @@ No Ubuntu/Debian:
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 python3-cairo
 ```
 
+Opcional (para verificação de **saúde SMART** dos discos): `smartmontools`
+(`smartctl`). Se não estiver instalado, o Cleanix pode sugerir/instalar quando
+você clicar em “Saúde (SMART)”.
+
 ## Como executar
 
 ```bash
@@ -82,12 +94,13 @@ python3 -m unittest discover -s tests -v
 
 ## Estrutura
 
-- `cleanix/cleanixwindow.py` — tela inicial, menu e varredura.
-- `cleanix/dialogs.py` — diálogos de limpeza, otimizador, ajustes, histórico e
-  configurações.
+- `cleanix/cleanixwindow.py` — tela inicial, menu, discos conectados e varredura.
+- `cleanix/dialogs.py` — diálogos de limpeza, otimizador, ajustes, histórico,
+  configurações e saúde SMART.
 - `cleanix/scanner.py` — varredura e remoção segura.
 - `cleanix/execution.py` — comandos locais e administrativos via `pkexec`.
 - `cleanix/memory.py` — memória RAM e liberação do cache.
+- `cleanix/systeminfo.py` — disco/memória/CPU, discos conectados e análise SMART.
 - `cleanix/adjustments.py` — ajustes do GNOME via `gsettings`.
 - `cleanix/charts.py` — gráficos Cairo.
 - `cleanix/i18n.py` + `cleanix/locale/` — traduções e formatação por idioma.
@@ -162,6 +175,8 @@ reutilizados.
 ## Status
 
 - [x] Dados reais do sistema (disco, RAM, CPU) e gráficos atualizáveis
+- [x] Listagem de discos conectados/partições na tela inicial, com atualização
+- [x] Verificação de saúde SMART dos discos (com instalação assistida do smartmontools)
 - [x] Limpeza real com confirmação, relatório e histórico
 - [x] Cache do APT marcável no Cleaner, com senha na hora de limpar
 - [x] Otimizador com ações reais (APT, journal, fstrim, RAM, Startup Apps)
