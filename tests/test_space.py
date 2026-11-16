@@ -132,3 +132,25 @@ class ExcludeAndFilterTest(unittest.TestCase):
             (skip / 'b.bin').write_bytes(content)
             result = space.find_duplicates(str(root), min_size=1, exclude=[str(skip)])
             self.assertEqual(result['groups'], [])
+
+
+class TrashSelectionTest(unittest.TestCase):
+    def test_empty_selection(self):
+        ok, err = space.validate_trash_selection([], [])
+        self.assertFalse(ok)
+
+    def test_cannot_trash_all_copies_in_group(self):
+        groups = [{'files': ['/a/x', '/a/y'], 'size': 10, 'count': 2, 'wasted': 10, 'hash': 'h'}]
+        ok, err = space.validate_trash_selection(['/a/x', '/a/y'], groups)
+        self.assertFalse(ok)
+        self.assertEqual(err, 'space.trash.keep_one')
+
+    def test_can_trash_some_copies(self):
+        groups = [{'files': ['/a/x', '/a/y', '/a/z'], 'size': 10, 'count': 3, 'wasted': 20, 'hash': 'h'}]
+        ok, err = space.validate_trash_selection(['/a/x'], groups)
+        self.assertTrue(ok)
+        self.assertIsNone(err)
+
+    def test_non_duplicate_files_ok(self):
+        ok, err = space.validate_trash_selection(['/a/b'], [])
+        self.assertTrue(ok)

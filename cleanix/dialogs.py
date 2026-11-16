@@ -2342,6 +2342,9 @@ class SpaceAnalysisDialog(Gtk.Window):
         self._busy = False
         self._excludes = []
         self._min_sizes = [0, 1*1024*1024, 10*1024*1024, 100*1024*1024, 1024*1024*1024]
+        self._checks = {}
+        self._last_large = {'files': [], 'dirs': []}
+        self._last_dupes = {'groups': []}
 
         root = _vbox(10)
         root.set_margin_top(18)
@@ -2390,6 +2393,11 @@ class SpaceAnalysisDialog(Gtk.Window):
         self.cancel_btn.set_sensitive(False)
         self.cancel_btn.connect('clicked', lambda *_: self._request_cancel())
         controls.append(self.cancel_btn)
+        self.trash_btn = Gtk.Button(label=i18n.t('space.trash.action'))
+        self.trash_btn.add_css_class('btn-secondary')
+        self.trash_btn.set_sensitive(False)
+        self.trash_btn.connect('clicked', lambda *_: self._trash_selected())
+        controls.append(self.trash_btn)
         spacer = Gtk.Box(); spacer.set_hexpand(True); controls.append(spacer)
         close = Gtk.Button(label=i18n.t('common.close'))
         close.add_css_class('btn-secondary')
@@ -2575,6 +2583,8 @@ class SpaceAnalysisDialog(Gtk.Window):
         self.status.set_text(i18n.t('space.scanning'))
         self._clear_box(self.large_box)
         self._clear_box(self.dupes_box)
+        self._checks = {}
+        self.trash_btn.set_sensitive(False)
         folder = self._folder
         threading.Thread(target=self._scan_work, args=(folder,), daemon=True).start()
 
@@ -2629,45 +2639,144 @@ class SpaceAnalysisDialog(Gtk.Window):
         self.large_box.append(_txt(detail, 'muted', wrap=True))
         return GLib.SOURCE_REMOVE
 
+    def _make_file_row(self, box, path, subtitle='', selectable=False, size_bytes=0):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.add_css_class('cat-row')
+        if selectable:
+            check = Gtk.CheckButton()
+            check.set_valign(Gtk.Align.CENTER)
+            row.append(check)
+            self._checks[path] = (check, int(size_bytes or 0))
+            check.connect('toggled', lambda *_: self._update_trash_button())
+        info = _vbox(2)
+        info.set_hexpand(True)
+        info.append(_txt(path, 'cat-name' if not selectable else 'cat-name', wrap=True))
+        if subtitle:
+            info.append(_txt(subtitle, 'muted', wrap=True))
+        row.append(info)
+        btn = Gtk.Button(label=i18n.t('space.open_folder'))
+        btn.add_css_class('btn-secondary')
+        btn.connect('clicked', lambda *_b, p=path: self._open_path(p))
+        row.append(btn)
+        box.append(row)
+
+    def _update_trash_button(self):
+        selected = [p for p, (c, _s) in self._checks.items() if c.get_active()]
+        self.trash_btn.set_sensitive(bool(selected) and not self._busy)
+
+    def _selected_paths(self):
+        return [p for p, (c, _s) in self._checks.items() if c.get_active()]
+
+    def _selected_size(self):
+        return sum(s for p, (c, s) in self._checks.items() if c.get_active())
+
+    def _trash_selected(self):
+        paths = self._selected_paths()
+        if not paths:
+            show_info(self, i18n.t('space.trash.action'), i18n.t('space.trash.none_selected'))
+            return
+        ok, err = space.validate_trash_selection(paths, self._last_dupes.get('groups') or [])
+        if not ok:
+            show_info(self, i18n.t('space.trash.action'), i18n.t(err or 'space.trash.failed'))
+            return
+        size_txt = space.format_size(self._selected_size())
+        body = i18n.t('space.trash.confirm_body', count=len(paths), size=size_txt)
+        confirm(self, i18n.t('space.trash.confirm_title'), body,
+                i18n.t('space.trash.confirm_action'), lambda: self._do_trash(paths))
+
+    def _do_trash(self, paths):
+        self._set_busy(True)
+        self.trash_btn.set_sensitive(False)
+        self.status.set_text(i18n.t('action.running'))
+        threading.Thread(target=self._trash_work, args=(list(paths),), daemon=True).start()
+
+    def _trash_work(self, paths):
+        try:
+            ok, errors = space.trash_paths(paths)
+        except Exception as exc:
+            ok, errors = 0, [str(exc)]
+        GLib.idle_add(self._after_trash, paths, ok, errors)
+
+    def _after_trash(self, requested, ok_count, errors):
+        self._set_busy(False)
+        # remove successfully trashed (best effort: those not in errors)
+        failed_paths = set()
+        for e in (errors or []):
+            # errors formatted as "path: exc"
+            if ': ' in e:
+                failed_paths.add(e.split(': ', 1)[0])
+            else:
+                # unknown, be conservative
+                pass
+        # if we got per-path errors, remove only non-failed; if generic single error, none
+        if errors and len(errors) == 1 and ': ' not in errors[0]:
+            trashed = set()
+        else:
+            trashed = set(requested) - failed_paths
+        if trashed:
+            self._last_large['files'] = [f for f in (self._last_large.get('files') or []) if f.get('path') not in trashed]
+            new_groups = []
+            for g in (self._last_dupes.get('groups') or []):
+                files = [f for f in (g.get('files') or []) if f not in trashed]
+                if len(files) > 1:
+                    ng = dict(g)
+                    ng['files'] = files
+                    ng['count'] = len(files)
+                    ng['wasted'] = int(ng.get('size') or 0) * (len(files) - 1)
+                    new_groups.append(ng)
+            self._last_dupes['groups'] = new_groups
+        self._apply_results(self._last_large, self._last_dupes, partial=False)
+        if errors:
+            detail = '\n'.join(errors[:8])
+            msg = i18n.t('space.trash.partial', detail=detail) if ok_count else i18n.t('space.trash.failed')
+            show_info(self, i18n.t('space.trash.action'), msg)
+        else:
+            show_info(self, i18n.t('space.trash.action'), i18n.t('space.trash.done', count=ok_count))
+        return GLib.SOURCE_REMOVE
+
     def _apply_results(self, large, dupes, partial=False):
+        self._last_large = large or {'files': [], 'dirs': []}
+        self._last_dupes = dupes or {'groups': []}
         self._set_busy(False)
         self.status.set_text(i18n.t('space.partial') if partial else i18n.t('space.ready'))
         self._clear_box(self.large_box)
         self._clear_box(self.dupes_box)
+        self._checks = {}
 
         # large files
         self.large_box.append(_txt(i18n.t('space.large.files'), 'cat-name'))
-        files = large.get('files') or []
+        files = self._last_large.get('files') or []
         if not files:
             self.large_box.append(_txt(i18n.t('space.none'), 'muted'))
         else:
             for item in files:
-                p = item.get('path') or ''
-                sz = space.format_size(item.get('size') or 0)
-                self._add_item_row(self.large_box, p, sz)
-        # large dirs
+                pth = item.get('path') or ''
+                szb = item.get('size') or 0
+                sz = space.format_size(szb)
+                self._make_file_row(self.large_box, pth, sz, selectable=True, size_bytes=szb)
+        # large dirs (not selectable for trash)
         self.large_box.append(_txt(i18n.t('space.large.dirs'), 'cat-name'))
-        dirs = large.get('dirs') or []
+        dirs = self._last_large.get('dirs') or []
         if not dirs:
             self.large_box.append(_txt(i18n.t('space.none'), 'muted'))
         else:
             for item in dirs:
-                p = item.get('path') or ''
+                pth = item.get('path') or ''
                 sz = space.format_size(item.get('size') or 0)
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
                 row.add_css_class('cat-row')
                 info = _vbox(2); info.set_hexpand(True)
-                info.append(_txt(p, 'cat-name', wrap=True))
+                info.append(_txt(pth, 'cat-name', wrap=True))
                 info.append(_txt(sz, 'muted', wrap=True))
                 row.append(info)
                 btn = Gtk.Button(label=i18n.t('space.open_folder'))
                 btn.add_css_class('btn-secondary')
-                btn.connect('clicked', lambda *_b, path=p: self._open_path(path))
+                btn.connect('clicked', lambda *_b, path=pth: self._open_path(path))
                 row.append(btn)
                 self.large_box.append(row)
 
         # duplicates
-        groups = dupes.get('groups') or []
+        groups = self._last_dupes.get('groups') or []
         if not groups:
             self.dupes_box.append(_txt(i18n.t('space.dupes.none'), 'muted', wrap=True))
         else:
@@ -2678,17 +2787,9 @@ class SpaceAnalysisDialog(Gtk.Window):
                                 wasted=space.format_size(g.get('wasted') or 0))
                 self.dupes_box.append(_txt(header, 'cat-name', wrap=True))
                 for fp in (g.get('files') or []):
-                    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                    row.add_css_class('cat-row')
-                    info = _vbox(2); info.set_hexpand(True)
-                    info.append(_txt(fp, 'muted', wrap=True))
-                    row.append(info)
-                    btn = Gtk.Button(label=i18n.t('space.open_folder'))
-                    btn.add_css_class('btn-secondary')
-                    btn.connect('clicked', lambda *_b, path=fp: self._open_path(path))
-                    row.append(btn)
-                    self.dupes_box.append(row)
+                    self._make_file_row(self.dupes_box, fp, '', selectable=True, size_bytes=g.get('size') or 0)
                 sep = Gtk.Separator(); sep.set_margin_top(4); sep.set_margin_bottom(4)
                 self.dupes_box.append(sep)
+        self._update_trash_button()
         return GLib.SOURCE_REMOVE
 

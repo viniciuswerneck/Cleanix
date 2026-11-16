@@ -69,7 +69,9 @@ do sistema.
   (com senha de administrador quando necessário).
 - **Análise de espaço**: encontra arquivos/pastas grandes e arquivos duplicados
   (por conteúdo) na pasta pessoal ou em outra pasta escolhida, para revisão.
-  Varredura em segundo plano e cancelável, com opção de abrir a pasta do item;
+  Varredura em segundo plano e cancelável, com progresso e resultado parcial,
+  exclusões/filtros, opção de abrir a pasta e **mover selecionados para a
+  Lixeira** com prévia e confirmação (em duplicados, mantém ao menos uma cópia);
   nada é apagado automaticamente.
 - **Ajustes** com switches reais para animações do GNOME e limpeza automática
   de lixeira/temporários, aplicados via `gsettings`.

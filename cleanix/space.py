@@ -283,3 +283,45 @@ def format_size(num_bytes):
             return f"{num:.1f} {unit}"
         num /= 1024.0
     return f"{num:.1f} TB"
+
+
+def validate_trash_selection(selected_paths, duplicate_groups):
+    """Valida seleção para lixeira: em duplicados, manter ao menos 1 cópia.
+
+    duplicate_groups: lista de grupos como retornados por find_duplicates.
+    Retorna (ok, error_key) onde error_key é chave i18n ou None.
+    """
+    selected = set(selected_paths or [])
+    if not selected:
+        return False, 'space.trash.none_selected'
+    group_files = []
+    for g in (duplicate_groups or []):
+        files = list(g.get('files') or [])
+        if len(files) > 1:
+            group_files.append(files)
+    for files in group_files:
+        in_group = [f for f in files if f in selected]
+        # if user selected some but all copies, block
+        if in_group and len(in_group) >= len(files):
+            return False, 'space.trash.keep_one'
+    return True, None
+
+
+def trash_paths(paths):
+    """Move arquivos para a lixeira. Retorna (ok_count, errors)."""
+    try:
+        import gi
+        gi.require_version('Gio', '2.0')
+        from gi.repository import Gio
+    except Exception as exc:
+        return 0, [str(exc)]
+    ok = 0
+    errors = []
+    for path in (paths or []):
+        try:
+            f = Gio.File.new_for_path(path)
+            f.trash(None)
+            ok += 1
+        except Exception as exc:
+            errors.append(f"{path}: {exc}")
+    return ok, errors
