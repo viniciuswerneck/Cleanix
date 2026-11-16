@@ -336,3 +336,46 @@ class SupportSummaryTest(unittest.TestCase):
     def test_summary_tolerates_partial_snapshot(self):
         text = xray.build_support_summary({})
         self.assertTrue(isinstance(text, str) and text)
+
+
+class ReportJsonTest(unittest.TestCase):
+    def _snapshot(self):
+        return {
+            'bios': {'summary': 'BIOS: ACME', 'details': 'b',
+                     'fields': {'product_name': 'PC'}},
+            'hardware': {'summary': 'CPU: T', 'details': 'h'},
+            'programs': {'apt': [('bash', '5', '1 MB')], 'snap': [],
+                         'flatpak_apps': [], 'flatpak_runtimes': 0,
+                         'summary': 'APT: 1'},
+            'network': {'summary': 'n', 'interfaces': [],
+                        'details': 'enp3s0 UP\n    MAC: aa:bb:cc:dd:ee:ff'},
+            'system': {'summary': 's', 'details': 'd', 'updates': 0},
+            'disks': [{'name': 'sda', 'type': 'disk', 'size_total': 10,
+                       'size_used': 1, 'pct_used': 10, 'mount_point': '/'}],
+            'alerts': [], 'limitations': [],
+        }
+
+    def test_json_structure_and_program_size(self):
+        import json
+        data = json.loads(xray.build_report_json(self._snapshot()))
+        self.assertIn('meta', data)
+        self.assertIn('cleanix_version', data['meta'])
+        self.assertEqual(data['programs']['apt'][0]['name'], 'bash')
+        self.assertEqual(data['programs']['apt'][0]['size'], '1 MB')
+        self.assertEqual(data['disks'][0]['name'], 'sda')
+
+    def test_json_redacts_identifiers(self):
+        import json
+        data = json.loads(xray.build_report_json(
+            self._snapshot(), bios_details='Serial Number: SEC\n', redact=True))
+        blob = json.dumps(data, ensure_ascii=False)
+        self.assertNotIn('SEC', blob)
+        self.assertNotIn('aa:bb:cc:dd:ee:ff', blob)
+        self.assertTrue(data['meta']['redacted'])
+
+    def test_json_keeps_identifiers_when_disabled(self):
+        import json
+        data = json.loads(xray.build_report_json(
+            self._snapshot(), bios_details='Serial Number: SEC\n', redact=False))
+        self.assertIn('SEC', data['bios']['details'])
+        self.assertFalse(data['meta']['redacted'])

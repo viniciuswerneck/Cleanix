@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import shutil
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -1436,3 +1437,86 @@ def build_support_summary(snapshot, bios_details='', hw_details='',
             lines.append(' - ' + str(item))
 
     return '\n'.join(lines)
+
+
+def _program_items(items):
+    result = []
+    for item in items or []:
+        if not item:
+            continue
+        result.append({
+            'name': item[0] if len(item) > 0 else '',
+            'version': item[1] if len(item) > 1 else '',
+            'size': item[2] if len(item) > 2 else '',
+        })
+    return result
+
+
+def build_report_json(snapshot, bios_details='', hw_details='',
+                      bios_source='', hw_source='', priv_error='',
+                      redact=True):
+    """Monta o relatório JSON do Raio-X."""
+    snap = snapshot or {}
+    bios = snap.get('bios', {}) or {}
+    hardware = snap.get('hardware', {}) or {}
+    programs = snap.get('programs', {}) or {}
+    network = snap.get('network', {}) or {}
+    system = snap.get('system', {}) or {}
+    disks = snap.get('disks', []) or []
+    alerts = snap.get('alerts', []) or []
+    limitations = snap.get('limitations', []) or []
+    fields = dict(bios.get('fields') or {})
+
+    bios_details = bios_details or bios.get('details') or ''
+    hw_details = hw_details or hardware.get('details') or ''
+    network_details = network.get('details') or ''
+    if redact:
+        bios_details = redact_sensitive(bios_details)
+        hw_details = redact_sensitive(hw_details)
+        network_details = redact_network_macs(network_details)
+
+    interfaces = []
+    for iface in network.get('interfaces') or []:
+        item = dict(iface)
+        if redact and 'mac' in item:
+            item['mac'] = i18n.t('xray.redacted')
+        interfaces.append(item)
+
+    data = {
+        'meta': {
+            'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'cleanix_version': str(cleanix_version),
+            'os': os_pretty_name(),
+            'product': fields.get('product_name') or fields.get('sys_vendor') or '',
+            'redacted': bool(redact),
+            'priv_error': priv_error or '',
+        },
+        'bios': {
+            'summary': bios.get('summary') or '',
+            'details': bios_details,
+            'source': bios_source or '',
+            'fields': fields,
+        },
+        'hardware': {
+            'summary': hardware.get('summary') or '',
+            'details': hw_details,
+            'source': hw_source or '',
+        },
+        'network': {
+            'summary': network.get('summary') or '',
+            'details': network_details,
+            'interfaces': interfaces,
+        },
+        'system': dict(system),
+        'disks': list(disks),
+        'alerts': list(alerts),
+        'programs': {
+            'summary': programs.get('summary') or '',
+            'apt': _program_items(programs.get('apt')),
+            'snap': _program_items(programs.get('snap')),
+            'flatpak_apps': _program_items(programs.get('flatpak_apps')),
+            'flatpak_runtimes': programs.get('flatpak_runtimes') or 0,
+        },
+        'limitations': list(limitations),
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2)
