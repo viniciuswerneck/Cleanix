@@ -55,10 +55,6 @@ def _hbox(spacing=8):
     return Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=spacing)
 
 
-def _plural(count, singular, plural):
-    return f'{count} {singular if count == 1 else plural}'
-
-
 def show_info(parent, title, message):
     """Mostra um aviso simples, sem bloquear a thread principal."""
     dialog = Gtk.AlertDialog()
@@ -74,7 +70,7 @@ def confirm(parent, title, message, confirm_label, on_confirm):
     dialog.set_message(title)
     dialog.set_detail(message)
     dialog.set_modal(True)
-    dialog.set_buttons(['Cancelar', confirm_label])
+    dialog.set_buttons([i18n.t('common.cancel'), confirm_label])
     dialog.set_cancel_button(0)
     dialog.set_default_button(1)
 
@@ -114,7 +110,7 @@ class DetailsDialog(Gtk.Window):
 
     def __init__(self, parent, categories, results, selected, on_clean):
         super().__init__()
-        self.set_title('Detalhes da Limpeza')
+        self.set_title(i18n.t('details.title'))
         self.set_modal(True)
         self.set_transient_for(parent)
         self.set_default_size(560, -1)
@@ -131,9 +127,8 @@ class DetailsDialog(Gtk.Window):
         root.set_margin_start(18)
         root.set_margin_end(18)
 
-        root.append(_txt('Detalhes da Limpeza', 'dialog-title'))
-        root.append(_txt('Escolha o que deseja remover. As pastas raiz nunca '
-                         'são apagadas.', 'muted', wrap=True))
+        root.append(_txt(i18n.t('details.title'), 'dialog-title'))
+        root.append(_txt(i18n.t('details.subtitle'), 'muted', wrap=True))
 
         for cat in categories:
             root.append(self._row(cat))
@@ -144,16 +139,18 @@ class DetailsDialog(Gtk.Window):
         root.append(separator)
 
         footer = _hbox(10)
-        self._total_label = _txt('Total selecionado: 0 B', 'dialog-total')
+        self._total_label = _txt(
+            i18n.t('details.total', value=systeminfo.format_bytes(0)),
+            'dialog-total')
         self._total_label.set_hexpand(True)
         footer.append(self._total_label)
 
-        cancel = Gtk.Button(label='Cancelar')
+        cancel = Gtk.Button(label=i18n.t('common.cancel'))
         cancel.add_css_class('btn-secondary')
         cancel.connect('clicked', lambda *_: self.close())
         footer.append(cancel)
 
-        clean = Gtk.Button(label='Limpar agora')
+        clean = Gtk.Button(label=i18n.t('details.clean'))
         clean.add_css_class('btn-danger')
         clean.connect('clicked', lambda *_: self._clean())
         footer.append(clean)
@@ -174,26 +171,26 @@ class DetailsDialog(Gtk.Window):
         check.set_sensitive(available)
         check.set_valign(Gtk.Align.CENTER)
         if cat.requires_admin:
-            check.set_tooltip_text('Precisa da senha de administrador')
+            check.set_tooltip_text(i18n.t('details.admin_tooltip'))
         check.connect('toggled', self._on_toggle, cat.key)
         row.append(check)
         self._checks[cat.key] = check
 
         row.append(_icon(CATEGORY_ICONS.get(cat.key, '📁')))
 
-        name = _txt(cat.label, 'cat-name')
+        name = _txt(i18n.t(f'category.{cat.key}'), 'cat-name')
         name.set_hexpand(True)
         name.set_valign(Gtk.Align.CENTER)
         row.append(name)
 
         if not available:
-            row.append(_txt('Indisponível', 'muted'))
+            row.append(_txt(i18n.t('details.unavailable'), 'muted'))
         elif result.files == 0 and result.bytes == 0:
-            row.append(_txt('Vazio', 'muted'))
+            row.append(_txt(i18n.t('details.empty'), 'muted'))
         else:
             row.append(_txt(systeminfo.format_bytes(result.bytes), 'cat-size'))
             if result.files:
-                row.append(_txt(_plural(result.files, 'arquivo', 'arquivos'),
+                row.append(_txt(i18n.tn('history.files', result.files),
                                 'muted'))
 
         return row
@@ -214,14 +211,14 @@ class DetailsDialog(Gtk.Window):
             if result is not None:
                 total += result.bytes
         self._total_label.set_text(
-            f'Total selecionado: {systeminfo.format_bytes(total)}')
+            i18n.t('details.total', value=systeminfo.format_bytes(total)))
 
     def _clean(self):
         keys = {key for key, check in self._checks.items()
                 if check.get_active() and check.get_sensitive()}
         if not keys:
-            show_info(self, 'Nada selecionado',
-                      'Marque ao menos uma categoria para limpar.')
+            show_info(self, i18n.t('clean.none.title'),
+                      i18n.t('details.none.body'))
             return
         self.close()
         self._on_clean(keys)
@@ -230,15 +227,16 @@ class DetailsDialog(Gtk.Window):
 class _ActionDialog(Gtk.Window):
     """Base para diálogos que executam comandos do sistema."""
 
-    heading = ''
-    subtitle = ''
+    heading_key = ''
+    subtitle_key = ''
     actions = ()
 
     def __init__(self, parent, on_done=None):
         super().__init__()
         self._buttons = {}
         self._on_done = on_done
-        self.set_title(self.heading)
+        heading = i18n.t(self.heading_key)
+        self.set_title(heading)
         self.set_modal(True)
         self.set_transient_for(parent)
         self.set_default_size(560, -1)
@@ -250,9 +248,9 @@ class _ActionDialog(Gtk.Window):
         root.set_margin_start(18)
         root.set_margin_end(18)
 
-        root.append(_txt(self.heading, 'dialog-title'))
-        if self.subtitle:
-            root.append(_txt(self.subtitle, 'muted', wrap=True))
+        root.append(_txt(heading, 'dialog-title'))
+        if self.subtitle_key:
+            root.append(_txt(i18n.t(self.subtitle_key), 'muted', wrap=True))
 
         for action in self.actions:
             root.append(self._action_row(action))
@@ -265,7 +263,7 @@ class _ActionDialog(Gtk.Window):
         self.status = _txt('', 'muted', wrap=True)
         root.append(self.status)
 
-        close = Gtk.Button(label='Fechar')
+        close = Gtk.Button(label=i18n.t('common.close'))
         close.add_css_class('btn-secondary')
         close.connect('clicked', lambda *_: self.close())
         root.append(close)
@@ -276,16 +274,16 @@ class _ActionDialog(Gtk.Window):
         row = _hbox(10)
         row.add_css_class('dialog-row')
 
-        button = Gtk.Button(label=action['label'])
+        button = Gtk.Button(label=i18n.t(action['label_key']))
         button.add_css_class('btn-green')
         if action.get('dialog') is not None:
             button.connect('clicked', lambda *_: action['dialog'](self))
         else:
             button.connect('clicked', self._on_clicked, action)
         row.append(button)
-        self._buttons[action['label']] = button
+        self._buttons[action['label_key']] = button
 
-        description = _txt(action['description'], 'cat-name')
+        description = _txt(i18n.t(action['description_key']), 'cat-name')
         description.set_hexpand(True)
         description.set_valign(Gtk.Align.CENTER)
         description.set_wrap(True)
@@ -293,65 +291,63 @@ class _ActionDialog(Gtk.Window):
         return row
 
     def _on_clicked(self, button, action):
-        log.info('Ação escolhida: %s', action['label'])
-        confirm(self, f'Confirmar: {action["label"]}', action['detail'],
-                'Executar', lambda: self._start(button, action))
+        label = i18n.t(action['label_key'])
+        log.info('Ação escolhida: %s', label)
+        confirm(self, i18n.t('action.confirm.title', label=label),
+                i18n.t(action['detail_key']),
+                i18n.t('action.confirm.button'),
+                lambda: self._start(button, action))
 
     def _start(self, button, action):
-        label = button.get_label()
-        button.set_label('Executando…')
+        label = i18n.t(action['label_key'])
+        button.set_label(i18n.t('action.running'))
         button.set_sensitive(False)
-        self.status.set_text(f'{action["label"]}: executando…')
+        self.status.set_text(i18n.t('action.status.running', label=label))
 
         def work():
             result = execute_command(action['command'], action['as_root'])
-            GLib.idle_add(self._done, button, label, action, result)
+            GLib.idle_add(self._done, button, action, result)
 
         threading.Thread(target=work, daemon=True, name='cleanix-action').start()
 
-    def _done(self, button, label, action, result):
+    def _done(self, button, action, result):
+        label = i18n.t(action['label_key'])
         button.set_label(label)
         button.set_sensitive(True)
 
         if result.ok:
-            self.status.set_text(f'{action["label"]}: concluído.')
-            body = result.output or 'Nada havia para fazer — o sistema já ' \
-                                    'estava otimizado.'
-            show_info(self, f'{action["label"]}: concluído', _limit(body))
+            self.status.set_text(i18n.t('action.status.done', label=label))
+            body = result.output or i18n.t('action.done.body')
+            show_info(self, i18n.t('action.done.title', label=label),
+                      _limit(body))
             if self._on_done is not None:
                 self._on_done()
         else:
-            self.status.set_text(f'{action["label"]}: não concluído.')
-            show_info(self, f'{action["label"]}: não concluído',
-                      _limit(result.error or 'O comando não foi concluído.'))
+            self.status.set_text(i18n.t('action.status.failed', label=label))
+            show_info(self, i18n.t('action.failed.title', label=label),
+                      _limit(result.error or i18n.t('action.failed.body')))
         return GLib.SOURCE_REMOVE
 
 
 OPTIMIZER_ACTIONS = (
     {
-        'label': 'APT Auto-clean',
-        'description': 'Remove pacotes órfãos e limpa o cache do APT',
-        'detail': 'Serão removidos automaticamente os pacotes que não são '
-                  'mais necessários e o cache do APT será limpo.\n'
-                  'Será pedida a senha de administrador.',
+        'label_key': 'optimizer.apt.label',
+        'description_key': 'optimizer.apt.description',
+        'detail_key': 'optimizer.apt.detail',
         'command': 'apt-get autoremove -y && apt-get clean',
         'as_root': True,
     },
     {
-        'label': 'Journal Vacuum',
-        'description': 'Reduz os logs do sistema aos últimos 7 dias',
-        'detail': 'Os logs antigos do systemd (journalctl) serão apagados, '
-                  'liberando espaço em disco.\n'
-                  'Será pedida a senha de administrador.',
+        'label_key': 'optimizer.journal.label',
+        'description_key': 'optimizer.journal.description',
+        'detail_key': 'optimizer.journal.detail',
         'command': 'journalctl --vacuum-time=7d',
         'as_root': True,
     },
     {
-        'label': 'fstrim',
-        'description': 'Otimiza o descarte de blocos livres no disco',
-        'detail': 'O sistema avisará ao disco quais blocos estão livres, o '
-                  'que ajuda no desempenho do SSD.\n'
-                  'Será pedida a senha de administrador.',
+        'label_key': 'optimizer.fstrim.label',
+        'description_key': 'optimizer.fstrim.description',
+        'detail_key': 'optimizer.fstrim.detail',
         'command': 'fstrim -av',
         'as_root': True,
     },
@@ -360,18 +356,17 @@ OPTIMIZER_ACTIONS = (
 
 ADJUSTMENT_ACTIONS = (
     {
-        'label': 'Desktop',
-        'description': 'Ativa as animações da interface do GNOME',
-        'detail': 'As animações de janelas e menus do GNOME serão ativadas.',
+        'label_key': 'adjust.desktop.label',
+        'description_key': 'adjust.desktop.description',
+        'detail_key': 'adjust.desktop.detail',
         'command': 'gsettings set org.gnome.desktop.interface '
                    'enable-animations true',
         'as_root': False,
     },
     {
-        'label': 'Privacidade',
-        'description': 'Esvazia lixeira e temporários antigos automaticamente',
-        'detail': 'O GNOME passará a esvaziar a lixeira e a remover arquivos '
-                  'temporários antigos automaticamente.',
+        'label_key': 'adjust.privacy.label',
+        'description_key': 'adjust.privacy.description',
+        'detail_key': 'adjust.privacy.detail',
         'command': 'gsettings set org.gnome.desktop.privacy '
                    'remove-old-trash-files true && '
                    'gsettings set org.gnome.desktop.privacy '
@@ -379,10 +374,9 @@ ADJUSTMENT_ACTIONS = (
         'as_root': False,
     },
     {
-        'label': 'Performance',
-        'description': 'Desativa animações para deixar o sistema mais rápido',
-        'detail': 'As animações de janelas e menus do GNOME serão desativadas, '
-                  'deixando a interface mais leve em computadores modestos.',
+        'label_key': 'adjust.performance.label',
+        'description_key': 'adjust.performance.description',
+        'detail_key': 'adjust.performance.detail',
         'command': 'gsettings set org.gnome.desktop.interface '
                    'enable-animations false',
         'as_root': False,
@@ -395,7 +389,7 @@ class StartupAppsDialog(Gtk.Window):
 
     def __init__(self, parent):
         super().__init__()
-        self.set_title('Aplicativos de Inicialização')
+        self.set_title(i18n.t('startup.title'))
         self.set_modal(True)
         self.set_transient_for(parent)
         width, _height = self._screen_size()
@@ -408,11 +402,8 @@ class StartupAppsDialog(Gtk.Window):
         root.set_margin_start(18)
         root.set_margin_end(18)
 
-        root.append(_txt('Aplicativos de Inicialização', 'dialog-title'))
-        root.append(_txt('Desative o que não precisa abrir junto com o '
-                         'sistema. A mudança é aplicada na hora, vale só '
-                         'para o seu usuário e não precisa de senha.',
-                         'muted', wrap=True))
+        root.append(_txt(i18n.t('startup.title'), 'dialog-title'))
+        root.append(_txt(i18n.t('startup.subtitle'), 'muted', wrap=True))
 
         self._grid = Gtk.Grid()
         self._grid.set_column_spacing(10)
@@ -438,7 +429,7 @@ class StartupAppsDialog(Gtk.Window):
         separator.set_margin_bottom(4)
         root.append(separator)
 
-        close = Gtk.Button(label='Fechar')
+        close = Gtk.Button(label=i18n.t('common.close'))
         close.add_css_class('btn-secondary')
         close.connect('clicked', lambda *_: self.close())
         root.append(close)
@@ -488,13 +479,12 @@ class StartupAppsDialog(Gtk.Window):
         except OSError as exc:
             log.exception('Falha ao listar aplicativos de inicialização')
             self._entries = []
-            show_info(self, 'Não foi possível ler os aplicativos',
-                      f'Detalhe: {exc}')
+            show_info(self, i18n.t('startup.error.title'),
+                      i18n.t('startup.error.body', detail=exc))
 
         if not self._entries:
             self._grid.attach(
-                _txt('Nenhum aplicativo de inicialização encontrado.',
-                     'empty-text'),
+                _txt(i18n.t('startup.empty'), 'empty-text'),
                 0, 0, STARTUP_COLUMNS, 1)
             return
 
@@ -532,16 +522,18 @@ class StartupAppsDialog(Gtk.Window):
             autostart.set_enabled(entry, enabled, Path.home())
         except OSError as exc:
             log.exception('Falha ao alterar o aplicativo %s', entry.name)
-            show_info(self, 'Não foi possível alterar',
-                      f'{entry.name}: {exc}')
+            show_info(self, i18n.t('startup.change_error.title'),
+                      i18n.t('startup.change_error.body', name=entry.name,
+                             detail=exc))
             self._restoring = True
             switch.set_active(not enabled)
             self._restoring = False
             return
 
-        estado = 'ativado' if enabled else 'desativado'
+        estado = i18n.t('startup.enabled' if enabled else 'startup.disabled')
         log.info('Startup %s: %s', entry.name, estado)
-        self.status.set_text(f'{entry.name}: {estado}.')
+        self.status.set_text(
+            i18n.t('startup.status', name=entry.name, state=estado))
 
 
 class MemoryDialog(Gtk.Window):
@@ -550,7 +542,7 @@ class MemoryDialog(Gtk.Window):
     def __init__(self, parent, on_released=None):
         super().__init__()
         self._on_released = on_released
-        self.set_title('Memória RAM')
+        self.set_title(i18n.t('memory.title'))
         self.set_modal(True)
         self.set_transient_for(parent)
         self.set_default_size(520, -1)
@@ -564,16 +556,13 @@ class MemoryDialog(Gtk.Window):
 
         heading = _hbox(8)
         heading.append(_icon('🧠'))
-        heading.append(_txt('Memória RAM', 'dialog-title'))
+        heading.append(_txt(i18n.t('memory.title'), 'dialog-title'))
         root.append(heading)
 
-        root.append(_txt(
-            'O sistema guarda arquivos lidos do disco na memória para '
-            'abrir mais rápido. Liberar esse cache devolve a memória, mas '
-            'o computador pode ficar um pouco mais lento até reler os '
-            'arquivos do disco.', 'muted', wrap=True))
+        root.append(_txt(i18n.t('memory.explain'), 'muted', wrap=True))
 
-        self._cache_label = _txt('Cache em uso: —', 'cat-name')
+        self._cache_label = _txt(
+            i18n.t('memory.cache_in_use', value='—'), 'cat-name')
         root.append(self._cache_label)
 
         self._free_label = _txt('', 'muted', wrap=True)
@@ -588,7 +577,7 @@ class MemoryDialog(Gtk.Window):
         root.append(separator)
 
         footer = _hbox(10)
-        close = Gtk.Button(label='Fechar')
+        close = Gtk.Button(label=i18n.t('common.close'))
         close.add_css_class('btn-secondary')
         close.connect('clicked', lambda *_: self.close())
         footer.append(close)
@@ -597,7 +586,7 @@ class MemoryDialog(Gtk.Window):
         spacer.set_hexpand(True)
         footer.append(spacer)
 
-        self._release = Gtk.Button(label='Liberar memória')
+        self._release = Gtk.Button(label=i18n.t('memory.release'))
         self._release.add_css_class('btn-green')
         self._release.connect('clicked', self._on_release)
         footer.append(self._release)
@@ -609,30 +598,27 @@ class MemoryDialog(Gtk.Window):
     def _refresh(self):
         values = memory.read_meminfo()
         if not values:
-            self._cache_label.set_text('Cache em uso: indisponível')
+            self._cache_label.set_text(i18n.t('memory.unavailable'))
             self._free_label.set_text('')
             self._release.set_sensitive(False)
             return
 
         cache = memory.reclaimable_memory(values)
         self._cache_label.set_text(
-            f'Cache em uso: {systeminfo.format_bytes(cache)}')
-        self._free_label.set_text(
-            'Este é o máximo que pode ser liberado agora.')
+            i18n.t('memory.cache_in_use',
+                   value=systeminfo.format_bytes(cache)))
+        self._free_label.set_text(i18n.t('memory.max_release'))
         self._release.set_sensitive(True)
 
     def _on_release(self, _button):
-        detail = ('O cache de arquivos guardado na memória será descartado. '
-                  'O sistema pode ficar um pouco mais lento até reler os '
-                  'arquivos do disco.\n\n'
-                  'Será pedida a senha de administrador.')
-        confirm(self, 'Confirmar liberação de memória', detail, 'Liberar',
-                self._start)
+        confirm(self, i18n.t('memory.confirm.title'),
+                i18n.t('memory.confirm.body'),
+                i18n.t('memory.confirm.action'), self._start)
 
     def _start(self):
-        self._release.set_label('Liberando…')
+        self._release.set_label(i18n.t('memory.releasing'))
         self._release.set_sensitive(False)
-        self.status.set_text('Liberando memória…')
+        self.status.set_text(i18n.t('memory.releasing_status'))
         threading.Thread(target=self._work, daemon=True,
                          name='cleanix-memory').start()
 
@@ -641,37 +627,36 @@ class MemoryDialog(Gtk.Window):
         GLib.idle_add(self._done, result)
 
     def _done(self, result):
-        self._release.set_label('Liberar memória')
+        self._release.set_label(i18n.t('memory.release'))
         self._release.set_sensitive(True)
 
         if result.ok:
-            self.status.set_text('Memória liberada.')
-            show_info(self, 'Memória RAM', result.output)
+            self.status.set_text(i18n.t('memory.released'))
+            show_info(self, i18n.t('memory.title'), result.output)
             self._refresh()
             if self._on_released is not None:
                 self._on_released()
         else:
-            self.status.set_text('Não foi possível liberar a memória.')
-            show_info(self, 'Memória RAM',
-                      result.error or 'A liberação não foi concluída.')
+            self.status.set_text(i18n.t('memory.failed_status'))
+            show_info(self, i18n.t('memory.title'),
+                      result.error or i18n.t('memory.failed_body'))
         return GLib.SOURCE_REMOVE
 
 
 class OptimizerDialog(_ActionDialog):
     """Otimizador do sistema, com ações que realmente são executadas."""
 
-    heading = 'Otimizador do Sistema'
-    subtitle = ('Escolha uma ação. Nada é executado sem a sua confirmação e, '
-                'quando necessário, será pedida a senha de administrador.')
+    heading_key = 'optimizer.title'
+    subtitle_key = 'optimizer.subtitle'
     actions = OPTIMIZER_ACTIONS + (
         {
-            'label': 'Memória RAM',
-            'description': 'Libera o cache de arquivos guardado na memória',
+            'label_key': 'optimizer.memory.label',
+            'description_key': 'optimizer.memory.description',
             'dialog': lambda parent: MemoryDialog(parent).present(),
         },
         {
-            'label': 'Startup Apps',
-            'description': 'Veja e desative o que inicia junto com o sistema',
+            'label_key': 'optimizer.startup.label',
+            'description_key': 'optimizer.startup.description',
             'dialog': lambda parent: StartupAppsDialog(parent).present(),
         },
     )
@@ -680,9 +665,8 @@ class OptimizerDialog(_ActionDialog):
 class AdjustmentsDialog(_ActionDialog):
     """Ajustes do sistema, aplicados com gsettings (sem root)."""
 
-    heading = 'Ajustes do Sistema'
-    subtitle = ('Estes ajustes valem apenas para o seu usuário e não precisam '
-                'de senha de administrador.')
+    heading_key = 'adjust.title'
+    subtitle_key = 'adjust.subtitle'
     actions = ADJUSTMENT_ACTIONS
 
 
@@ -691,7 +675,7 @@ class SettingsDialog(Gtk.Window):
 
     def __init__(self, parent):
         super().__init__()
-        self.set_title('Configurações')
+        self.set_title(i18n.t('settings.title'))
         self.set_modal(True)
         self.set_transient_for(parent)
         self.set_default_size(520, -1)
@@ -706,9 +690,8 @@ class SettingsDialog(Gtk.Window):
         root.set_margin_start(18)
         root.set_margin_end(18)
 
-        root.append(_txt('Configurações', 'dialog-title'))
-        root.append(_txt('As mudanças são salvas automaticamente e valem '
-                         'apenas para o seu usuário.', 'muted', wrap=True))
+        root.append(_txt(i18n.t('settings.title'), 'dialog-title'))
+        root.append(_txt(i18n.t('settings.subtitle'), 'muted', wrap=True))
 
         self._confirm_switch = Gtk.Switch()
         self._confirm_switch.set_active(
@@ -716,18 +699,16 @@ class SettingsDialog(Gtk.Window):
         self._confirm_switch.set_valign(Gtk.Align.CENTER)
         self._confirm_switch.connect('notify::active', self._on_toggle)
         root.append(self._row(
-            'Confirmar antes de limpar',
-            'Mostra um resumo com o espaço a liberar antes de remover '
-            'qualquer arquivo.', self._confirm_switch))
+            i18n.t('settings.confirm.title'),
+            i18n.t('settings.confirm.desc'), self._confirm_switch))
 
         self._history_switch = Gtk.Switch()
         self._history_switch.set_active(self._settings.keep_history)
         self._history_switch.set_valign(Gtk.Align.CENTER)
         self._history_switch.connect('notify::active', self._on_toggle)
         root.append(self._row(
-            'Guardar histórico das limpezas',
-            'Registra o que foi removido no cartão "Últimas Ações" e no '
-            'diálogo de histórico.', self._history_switch))
+            i18n.t('settings.history.title'),
+            i18n.t('settings.history.desc'), self._history_switch))
 
         self.status = _txt('', 'muted', wrap=True)
         root.append(self.status)
@@ -737,7 +718,7 @@ class SettingsDialog(Gtk.Window):
         separator.set_margin_bottom(4)
         root.append(separator)
 
-        close = Gtk.Button(label='Fechar')
+        close = Gtk.Button(label=i18n.t('common.close'))
         close.add_css_class('btn-secondary')
         close.connect('clicked', lambda *_: self.close())
         root.append(close)
@@ -767,11 +748,11 @@ class SettingsDialog(Gtk.Window):
             settings.save_settings(self._settings)
         except OSError as exc:
             log.exception('Falha ao salvar as configurações')
-            show_info(self, 'Não foi possível salvar',
-                      f'Detalhe: {exc}')
-            self.status.set_text('As preferências não foram salvas.')
+            show_info(self, i18n.t('settings.save_error.title'),
+                      i18n.t('settings.save_error.body', detail=exc))
+            self.status.set_text(i18n.t('settings.save_failed'))
             return
-        self.status.set_text('Preferências salvas.')
+        self.status.set_text(i18n.t('settings.saved'))
 
 
 class HistoryDialog(Gtk.Window):
@@ -779,7 +760,7 @@ class HistoryDialog(Gtk.Window):
 
     def __init__(self, parent, entries, on_clear):
         super().__init__()
-        self.set_title('Histórico de Limpezas')
+        self.set_title(i18n.t('history.dialog.title'))
         self.set_modal(True)
         self.set_transient_for(parent)
         self.set_default_size(520, -1)
@@ -793,13 +774,13 @@ class HistoryDialog(Gtk.Window):
         root.set_margin_start(18)
         root.set_margin_end(18)
 
-        root.append(_txt('Histórico de Limpezas', 'dialog-title'))
+        root.append(_txt(i18n.t('history.dialog.title'), 'dialog-title'))
 
         if entries:
             for entry in reversed(entries):
                 root.append(self._row(entry))
         else:
-            root.append(_txt('Nenhuma limpeza registrada ainda', 'empty-text'))
+            root.append(_txt(i18n.t('history.empty'), 'empty-text'))
 
         separator = Gtk.Separator()
         separator.set_margin_top(4)
@@ -807,7 +788,7 @@ class HistoryDialog(Gtk.Window):
         root.append(separator)
 
         footer = _hbox(10)
-        clear = Gtk.Button(label='Limpar histórico')
+        clear = Gtk.Button(label=i18n.t('history.clear'))
         clear.add_css_class('btn-danger')
         clear.set_sensitive(bool(entries))
         clear.connect('clicked', lambda *_: self._confirm_clear())
@@ -817,7 +798,7 @@ class HistoryDialog(Gtk.Window):
         spacer.set_hexpand(True)
         footer.append(spacer)
 
-        close = Gtk.Button(label='Fechar')
+        close = Gtk.Button(label=i18n.t('common.close'))
         close.add_css_class('btn-secondary')
         close.connect('clicked', lambda *_: self.close())
         footer.append(close)
@@ -836,11 +817,12 @@ class HistoryDialog(Gtk.Window):
 
         info = _vbox(1)
         info.set_hexpand(True)
-        info.append(_txt('Limpeza realizada', 'op-title'))
-        info.append(_txt(f'Espaço liberado: '
-                         f'{systeminfo.format_bytes(entry.bytes)} · '
-                         f'{_plural(entry.files, "arquivo", "arquivos")}',
-                         'op-sub'))
+        info.append(_txt(i18n.t('history.entry'), 'op-title'))
+        info.append(_txt(
+            i18n.t('history.entry_sub',
+                   size=systeminfo.format_bytes(entry.bytes),
+                   files=i18n.tn('history.files', entry.files)),
+            'op-sub'))
         row.append(info)
 
         row.append(_txt(history.format_timestamp(entry.timestamp), 'op-date'))
@@ -851,6 +833,6 @@ class HistoryDialog(Gtk.Window):
             self._on_clear()
             self.close()
 
-        confirm(self, 'Limpar histórico',
-                'Todas as entradas serão removidas. Continuar?',
-                'Limpar', do_clear)
+        confirm(self, i18n.t('history.clear.confirm.title'),
+                i18n.t('history.clear.confirm.body'),
+                i18n.t('history.clear.confirm.action'), do_clear)

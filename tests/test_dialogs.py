@@ -34,24 +34,40 @@ class ExecuteCommandTest(unittest.TestCase):
 
 
 class ActionListsTest(unittest.TestCase):
+    def setUp(self):
+        i18n.set_language('pt_BR')
+
+    def tearDown(self):
+        i18n.set_language('pt_BR')
+
     def test_optimizer_commands_need_root(self):
         for action in dialogs.OPTIMIZER_ACTIONS:
             self.assertTrue(action['as_root'])
 
     def test_optimizer_has_startup_apps_page(self):
         actions = dialogs.OptimizerDialog.actions
-        labels = [action['label'] for action in actions]
-        self.assertIn('Startup Apps', labels)
-        startup = next(a for a in actions if a['label'] == 'Startup Apps')
+        startup = next(a for a in actions
+                       if a['label_key'] == 'optimizer.startup.label')
+        self.assertEqual(i18n.t(startup['label_key']),
+                         'Aplicativos de inicialização')
         self.assertIsNotNone(startup.get('dialog'))
         self.assertNotIn('command', startup)
 
     def test_optimizer_has_separate_memory_page(self):
         actions = dialogs.OptimizerDialog.actions
-        memory = next(a for a in actions if a['label'] == 'Memória RAM')
+        memory = next(a for a in actions
+                      if a['label_key'] == 'optimizer.memory.label')
+        self.assertEqual(i18n.t(memory['label_key']), 'Memória RAM')
         self.assertIsNotNone(memory.get('dialog'))
         self.assertNotIn('command', memory)
         self.assertNotIn('as_root', memory)
+
+    def test_optimizer_labels_are_plain_language(self):
+        self.assertEqual(i18n.t('optimizer.apt.label'),
+                         'Limpar cache do APT')
+        self.assertEqual(i18n.t('optimizer.journal.label'),
+                         'Limpar logs antigos')
+        self.assertEqual(i18n.t('optimizer.fstrim.label'), 'Otimizar SSD')
 
     def test_adjustments_never_need_root(self):
         for action in dialogs.ADJUSTMENT_ACTIONS:
@@ -60,9 +76,23 @@ class ActionListsTest(unittest.TestCase):
 
     def test_actions_have_all_fields(self):
         for action in (dialogs.OPTIMIZER_ACTIONS + dialogs.ADJUSTMENT_ACTIONS):
-            for field in ('label', 'description', 'detail', 'command',
-                          'as_root'):
+            for field in ('label_key', 'description_key', 'detail_key',
+                          'command', 'as_root'):
                 self.assertIn(field, action)
+
+    def test_action_keys_exist_in_every_catalog(self):
+        actions = list(dialogs.OPTIMIZER_ACTIONS
+                       + dialogs.ADJUSTMENT_ACTIONS
+                       + tuple(dialogs.OptimizerDialog.actions))
+        keys = set()
+        for action in actions:
+            for field in ('label_key', 'description_key', 'detail_key'):
+                if field in action:
+                    keys.add(action[field])
+        for code in i18n.LANGUAGES:
+            catalog = i18n.catalog_keys(code)
+            for key in keys:
+                self.assertIn(key, catalog, f'{code}: {key}')
 
 
 class HelpAboutTextTest(unittest.TestCase):
