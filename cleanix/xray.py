@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 from . import i18n, systeminfo
@@ -27,6 +28,45 @@ def _read_text(path: Path) -> str:
         return ''
 
 
+_SENSITIVE_PREFIXES = (
+    'serial number', 'uuid', 'sku number', 'asset tag', 'serial',
+)
+
+
+def redact_sensitive(text: str) -> str:
+    """Mascara identificadores de hardware em saídas de dmidecode/lshw."""
+    if not text:
+        return ''
+    hidden = i18n.t('xray.redacted')
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        low = stripped.lower()
+        matched = None
+        for prefix in _SENSITIVE_PREFIXES:
+            if low.startswith(prefix + ':') or low.startswith(prefix + ' :'):
+                matched = prefix
+                break
+        if matched is None:
+            lines.append(line)
+            continue
+        indent = line[:len(line) - len(line.lstrip())]
+        label, _, _ = stripped.partition(':')
+        lines.append(f"{indent}{label.strip()}: {hidden}")
+    return '\n'.join(lines)
+
+
+def format_kb(kb) -> str:
+    """Converte a coluna Installed-Size (KB) em texto legível."""
+    try:
+        value = int(str(kb).strip())
+    except (TypeError, ValueError):
+        return ''
+    if value <= 0:
+        return ''
+    return systeminfo.format_bytes(value * 1024)
+
+
 def read_dmi_fields(base_path: str | Path = '/sys/class/dmi/id') -> dict[str, str]:
     base = Path(base_path)
     fields: dict[str, str] = {}
@@ -37,8 +77,8 @@ def read_dmi_fields(base_path: str | Path = '/sys/class/dmi/id') -> dict[str, st
     return fields
 
 
-def parse_dpkg_query(text: str) -> list[tuple[str, str]]:
-    pkgs: list[tuple[str, str]] = []
+def parse_dpkg_query(text: str) -> list[tuple[str, str, str]]:
+    pkgs: list[tuple[str, str, str]] = []
     for line in text.splitlines():
         if not line.strip():
             continue
@@ -48,18 +88,19 @@ def parse_dpkg_query(text: str) -> list[tuple[str, str]]:
         name = parts[0].strip()
         version = parts[1].strip()
         status = parts[2].strip() if len(parts) > 2 else 'installed'
+        size = format_kb(parts[3]) if len(parts) > 3 else ''
         if not name:
             continue
         # include only installed packages when status is provided
         if 'installed' in status or status == '' or len(parts) == 2:
             if 'config-files' in status or 'not-installed' in status:
                 continue
-            pkgs.append((name, version))
+            pkgs.append((name, version, size))
     return pkgs
 
 
-def parse_snap_list(text: str) -> list[tuple[str, str]]:
-    pkgs: list[tuple[str, str]] = []
+def parse_snap_list(text: str) -> list[tuple[str, str, str]]:
+    pkgs: list[tuple[str, str, str]] = []
     for line in text.splitlines():
         line = line.rstrip()
         if not line.strip():
@@ -72,12 +113,12 @@ def parse_snap_list(text: str) -> list[tuple[str, str]]:
         name, version = parts[0], parts[1]
         if name.lower() == 'name':
             continue
-        pkgs.append((name, version))
+        pkgs.append((name, version, ''))
     return pkgs
 
 
-def parse_flatpak_list(text: str) -> list[tuple[str, str]]:
-    apps: list[tuple[str, str]] = []
+def parse_flatpak_list(text: str) -> list[tuple[str, str, str]]:
+    apps: list[tuple[str, str, str]] = []
     for line in text.splitlines():
         if not line.strip():
             continue
@@ -90,8 +131,9 @@ def parse_flatpak_list(text: str) -> list[tuple[str, str]]:
             continue
         name = parts[0]
         version = parts[1] if len(parts) > 1 else ''
+        size = parts[2] if len(parts) > 2 else ''
         if name:
-            apps.append((name, version))
+            apps.append((name, version, size))
     return apps
 
 
@@ -113,6 +155,194 @@ def _cmd(cmd: str, timeout: int = 30) -> str:
     return ''
 
 
+def parse_ip_brief(text: str) -> list[dict]:
+    """Interpreta ``ip -brief addr`` em uma lista de interfaces."""
+    interfaces = []
+    for line in (text or '').splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        interfaces.append({
+            'name': parts[0],
+            'state': parts[1],
+            'addresses': parts[2:],
+        })
+    return interfaces
+
+
+def _read_mac(name: str, base_path: str | Path = '/sys/class/net') -> str:
+    mac = _read_text(Path(base_path) / name / 'address')
+    return mac.lower() if mac else ''
+
+
+def collect_network() -> dict:
+    """Coleta interfaces físicas (sem ``lo``), estado, IPs e MAC."""
+    interfaces = []
+    for item in parse_ip_brief(_cmd('ip -brief addr', timeout=10)):
+        if item['name'] == 'lo':
+            continue
+        item['mac'] = _read_mac(item['name'])
+        interfaces.append(item)
+
+    if not interfaces:
+        text = i18n.t('xray.network.none')
+        return {'summary': text, 'details': text, 'interfaces': []}
+
+    names = ', '.join(item['name'] for item in interfaces)
+    summary = i18n.t('xray.network.summary', n=len(interfaces), names=names)
+    lines = ['▸ ' + i18n.t('xray.section.network')]
+    for item in interfaces:
+        lines.append(f"  • {item['name']} — {item['state']}")
+        if item['addresses']:
+            lines.append('    IP: ' + ', '.join(item['addresses']))
+        if item['mac']:
+            lines.append('    MAC: ' + item['mac'])
+    return {'summary': summary, 'details': '\n'.join(lines),
+            'interfaces': interfaces}
+
+
+def parse_uptime(text: str) -> int:
+    """Lê o primeiro campo de ``/proc/uptime`` (segundos)."""
+    try:
+        return int(float((text or '').split()[0]))
+    except (IndexError, ValueError):
+        return 0
+
+
+def format_uptime(seconds: int) -> str:
+    seconds = max(0, int(seconds or 0))
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes = rest // 60
+    parts = []
+    if days:
+        parts.append(i18n.t('xray.uptime.days', n=days))
+    if hours:
+        parts.append(i18n.t('xray.uptime.hours', n=hours))
+    if minutes or not parts:
+        parts.append(i18n.t('xray.uptime.minutes', n=minutes))
+    return ' '.join(parts)
+
+
+def parse_apt_upgradable(text: str) -> int:
+    """Conta pacotes na saída de ``apt list --upgradable``."""
+    count = 0
+    for line in (text or '').splitlines():
+        low = line.lower()
+        if 'upgradable from' in low and '[' in line:
+            count += 1
+    return count
+
+
+def secure_boot_state(base_path: str | Path = '/sys/firmware/efi/efivars') -> str:
+    """Devolve ``enabled``, ``disabled`` ou ``''`` conforme o efivars."""
+    try:
+        files = sorted(Path(base_path).glob('SecureBoot-*'))
+    except OSError:
+        return ''
+    for path in files:
+        try:
+            data = path.read_bytes()
+        except OSError:
+            continue
+        if len(data) >= 5:
+            return 'enabled' if data[4] else 'disabled'
+    return ''
+
+
+def collect_system() -> dict:
+    """Coleta uptime, atualizações pendentes, Secure Boot e TPM."""
+    uptime = format_uptime(parse_uptime(_read_text(Path('/proc/uptime'))))
+    updates = 0
+    if shutil.which('apt'):
+        updates = parse_apt_upgradable(
+            _cmd('apt list --upgradable 2>/dev/null', timeout=20))
+    secure = secure_boot_state()
+    tpm = Path('/sys/class/tpm/tpm0').exists()
+
+    if secure == 'enabled':
+        secure_text = i18n.t('xray.system.enabled')
+    elif secure == 'disabled':
+        secure_text = i18n.t('xray.system.disabled')
+    else:
+        secure_text = i18n.t('xray.system.unknown')
+    tpm_text = (i18n.t('xray.system.present') if tpm
+                else i18n.t('xray.system.absent'))
+
+    fields = (
+        (i18n.t('xray.system.uptime'), uptime),
+        (i18n.t('xray.system.updates'), updates),
+        (i18n.t('xray.system.secure_boot'), secure_text),
+        (i18n.t('xray.system.tpm'), tpm_text),
+    )
+    summary = ' | '.join(f'{label}: {value}' for label, value in fields)
+    lines = ['▸ ' + i18n.t('xray.section.systeminfo')]
+    lines.extend(f'  • {label}: {value}' for label, value in fields)
+    return {
+        'summary': summary,
+        'details': '\n'.join(lines),
+        'uptime': uptime,
+        'updates': updates,
+        'secure_boot': secure,
+        'tpm': tpm,
+    }
+
+
+def _bios_year(value: str) -> int:
+    for fmt in ('%m/%d/%Y', '%Y-%m-%d', '%d/%m/%Y'):
+        try:
+            return datetime.strptime((value or '').strip(), fmt).year
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def build_alerts(bios_date: str, disk_usages, flatpak_runtimes,
+                 pending_updates, now_year: int) -> list[dict]:
+    """Calcula destaques locais, sem rede e sem privilégios."""
+    alerts = []
+    year = _bios_year(bios_date)
+    if year and now_year - year > 6:
+        alerts.append({
+            'level': 'warn',
+            'text': i18n.t('xray.alert.bios', year=year,
+                           age=now_year - year),
+        })
+
+    for disk in disk_usages or []:
+        try:
+            pct = int(disk.get('pct_used') or 0)
+        except (TypeError, ValueError):
+            continue
+        if pct >= 90:
+            mount = disk.get('mount_point') or disk.get('name') or '?'
+            alerts.append({
+                'level': 'warn',
+                'text': i18n.t('xray.alert.disk', mount=mount, pct=pct),
+            })
+
+    try:
+        runtimes = int(flatpak_runtimes or 0)
+    except (TypeError, ValueError):
+        runtimes = 0
+    if runtimes >= 20:
+        alerts.append({
+            'level': 'info',
+            'text': i18n.t('xray.alert.flatpak', n=runtimes),
+        })
+
+    try:
+        updates = int(pending_updates or 0)
+    except (TypeError, ValueError):
+        updates = 0
+    if updates > 0:
+        alerts.append({
+            'level': 'info',
+            'text': i18n.t('xray.alert.updates', n=updates),
+        })
+    return alerts
+
+
 def _bios_summary(fields: dict[str, str]) -> str:
     vendor = fields.get('bios_vendor') or fields.get('sys_vendor') or 'N/D'
     ver = fields.get('bios_version') or 'N/D'
@@ -128,15 +358,15 @@ def _bios_summary(fields: dict[str, str]) -> str:
 
 def _bios_details(fields: dict[str, str]) -> str:
     labels = {
-        'sys_vendor': 'Fabricante do sistema',
-        'product_name': 'Produto',
-        'product_version': 'Versão do produto',
-        'board_vendor': 'Fabricante da placa',
-        'board_name': 'Placa-mãe',
-        'bios_vendor': 'Fabricante da BIOS',
-        'bios_version': 'Versão da BIOS',
-        'bios_date': 'Data da BIOS',
-        'chassis_vendor': 'Fabricante do chassi',
+        'sys_vendor': i18n.t('xray.field.sys_vendor'),
+        'product_name': i18n.t('xray.field.product_name'),
+        'product_version': i18n.t('xray.field.product_version'),
+        'board_vendor': i18n.t('xray.field.board_vendor'),
+        'board_name': i18n.t('xray.field.board_name'),
+        'bios_vendor': i18n.t('xray.field.bios_vendor'),
+        'bios_version': i18n.t('xray.field.bios_version'),
+        'bios_date': i18n.t('xray.field.bios_date'),
+        'chassis_vendor': i18n.t('xray.field.chassis_vendor'),
     }
     sections = []
     sys_lines = []
@@ -144,27 +374,30 @@ def _bios_details(fields: dict[str, str]) -> str:
         if k in fields:
             sys_lines.append(f"• {labels.get(k, k)}: {fields[k]}")
     if sys_lines:
-        sections.append("Sistema\n" + "\n".join(sys_lines))
+        sections.append(i18n.t('xray.section.system') + "\n" + "\n".join(sys_lines))
 
     board_lines = []
     for k in ('board_vendor', 'board_name'):
         if k in fields:
             board_lines.append(f"• {labels.get(k, k)}: {fields[k]}")
     if board_lines:
-        sections.append("Placa-mãe\n" + "\n".join(board_lines))
+        sections.append(i18n.t('xray.section.motherboard') + "\n"
+                        + "\n".join(board_lines))
 
     bios_lines = []
     for k in ('bios_vendor', 'bios_version', 'bios_date'):
         if k in fields:
             bios_lines.append(f"• {labels.get(k, k)}: {fields[k]}")
     if bios_lines:
-        sections.append("BIOS/Firmware\n" + "\n".join(bios_lines))
+        sections.append(i18n.t('xray.section.firmware') + "\n"
+                        + "\n".join(bios_lines))
 
     try:
         u = os.uname()
-        sections.append("Sistema operacional\n"
-                        f"• Kernel: {u.release}\n"
-                        f"• Arquitetura: {u.machine}")
+        sections.append(
+            i18n.t('xray.section.os') + "\n"
+            + f"• {i18n.t('xray.field.kernel')}: {u.release}\n"
+            + f"• {i18n.t('xray.field.architecture')}: {u.machine}")
     except Exception:
         pass
     return '\n\n'.join(sections) if sections else ''
@@ -189,57 +422,66 @@ def _hardware_details() -> tuple[str, str]:
         pass
     cores = os.cpu_count() or 0
     if cpu_model or cores:
-        summary_parts.append(f"CPU: {cpu_model or 'N/D'} ({cores} núcleos lógicos)")
-    detail_lines.append('▸ CPU')
+        summary_parts.append(
+            f"CPU: {cpu_model or 'N/D'} "
+            f"({i18n.t('xray.summary.cores', n=cores)})")
+    detail_lines.append('▸ ' + i18n.t('xray.section.cpu'))
     if cpu_model:
-        detail_lines.append(f"  • Modelo: {cpu_model}")
-    detail_lines.append(f"  • Núcleos lógicos: {cores}")
-    if shutil.which('lscpu'):
-        lscpu = _cmd('lscpu')
-        if lscpu:
-            # keep compact but readable highlights
-            wanted = ('Architecture:', 'CPU(s):', 'Model name:', 'Thread(s) per core:',
-                      'Core(s) per socket:', 'Socket(s):', 'CPU max MHz:', 'CPU min MHz:',
-                      'Vendor ID:', 'Virtualization:')
-            highlights = [ln for ln in lscpu.splitlines() if ln.startswith(wanted)]
-            if highlights:
-                detail_lines.append('')
-                detail_lines.extend('  ' + ln for ln in highlights)
+        detail_lines.append(f"  • {i18n.t('xray.field.model')}: {cpu_model}")
+    detail_lines.append(
+        f"  • {i18n.t('xray.field.logical_cores')}: {cores}")
+    try:
+        detail_lines.append(
+            f"  • {i18n.t('xray.field.architecture')}: {platform.machine()}")
+    except Exception:
+        pass
 
     # Memory
     mem = systeminfo.get_mem_info()
     if mem.total:
         summary_parts.append(f"RAM: {systeminfo.format_bytes(mem.total)}")
-    detail_lines.append('\n▸ Memória')
+    detail_lines.append('\n▸ ' + i18n.t('xray.section.memory'))
     if mem.total:
-        detail_lines.append(f"  • Total: {systeminfo.format_bytes(mem.total)}")
-        detail_lines.append(f"  • Disponível: {systeminfo.format_bytes(mem.available)}")
-        detail_lines.append(f"  • Em uso: {systeminfo.format_bytes(mem.used)}")
+        detail_lines.append(
+            f"  • {i18n.t('xray.field.total')}: "
+            f"{systeminfo.format_bytes(mem.total)}")
+        detail_lines.append(
+            f"  • {i18n.t('xray.field.available')}: "
+            f"{systeminfo.format_bytes(mem.available)}")
+        detail_lines.append(
+            f"  • {i18n.t('xray.field.used')}: "
+            f"{systeminfo.format_bytes(mem.used)}")
     else:
-        detail_lines.append('  • Indisponível')
+        detail_lines.append('  • ' + i18n.t('xray.unavailable'))
 
     # Disks
+    disks = []
     try:
         disks = systeminfo._scan_disks()
-        phys = [d for d in disks if d.get('type') == 'disk' and (d.get('size_total') or 0) > 0]
+        phys = [d for d in disks
+                if d.get('type') == 'disk' and (d.get('size_total') or 0) > 0]
         if phys:
             names = ', '.join(
-                f"{d.get('name')} ({systeminfo.format_bytes(d.get('size_total', 0))})" for d in phys[:4])
-            summary_parts.append(f"Discos: {names}")
-        detail_lines.append('\n▸ Discos e partições')
+                f"{d.get('name')} "
+                f"({systeminfo.format_bytes(d.get('size_total', 0))})"
+                for d in phys[:4])
+            summary_parts.append(
+                f"{i18n.t('xray.summary.disks')}: {names}")
+        detail_lines.append('\n▸ ' + i18n.t('xray.section.disks'))
         if disks:
             for d in disks[:20]:
-                t = systeminfo.format_bytes(d.get('size_total', 0))
+                total = systeminfo.format_bytes(d.get('size_total', 0))
                 mp = d.get('mount_point') or ''
                 dtype = d.get('type') or ''
                 prefix = '  •' if dtype == 'disk' else '    -'
                 extra = f"  [{mp}]" if mp else ''
-                detail_lines.append(f"{prefix} {d.get('name')} ({dtype}, {t}){extra}")
+                detail_lines.append(
+                    f"{prefix} {d.get('name')} ({dtype}, {total}){extra}")
         else:
-            detail_lines.append('  • Indisponível')
+            detail_lines.append('  • ' + i18n.t('xray.unavailable'))
     except Exception:
-        detail_lines.append('\n▸ Discos e partições')
-        detail_lines.append('  • Indisponível')
+        detail_lines.append('\n▸ ' + i18n.t('xray.section.disks'))
+        detail_lines.append('  • ' + i18n.t('xray.unavailable'))
 
     # PCI/GPU/USB
     if shutil.which('lspci'):
@@ -249,37 +491,42 @@ def _hardware_details() -> tuple[str, str]:
                     if re.search(r'VGA|3D|Display', ln, re.I)]
             if gpus:
                 summary_parts.append(f"GPU: {gpus[0].split(': ', 1)[-1][:60]}")
-            detail_lines.append('\n▸ GPU (PCI)')
+            detail_lines.append('\n▸ ' + i18n.t('xray.section.gpu'))
             for g in gpus[:6]:
                 detail_lines.append('  • ' + g.split(': ', 1)[-1])
-            detail_lines.append('\n▸ Dispositivos PCI')
-            # show concise list (limit to avoid wall of text)
+            detail_lines.append('\n▸ ' + i18n.t('xray.section.pci'))
             pci_lines = lspci.splitlines()
             for ln in pci_lines[:40]:
                 detail_lines.append('  • ' + ln)
             if len(pci_lines) > 40:
-                detail_lines.append(f'  … (+{len(pci_lines)-40} itens)')
+                detail_lines.append(
+                    '  ' + i18n.t('xray.field.items_more',
+                                  n=len(pci_lines) - 40))
     else:
-        limitations.append('lspci indisponível')
-        detail_lines.append('\n▸ PCI')
-        detail_lines.append('  • Indisponível (lspci)')
+        limitations.append(i18n.t('xray.error.tool_missing', tool='lspci'))
+        detail_lines.append('\n▸ ' + i18n.t('xray.section.pci'))
+        detail_lines.append('  • ' + i18n.t('xray.unavailable'))
 
     if shutil.which('lsusb'):
         lsusb = _cmd('lsusb')
         if lsusb:
-            detail_lines.append('\n▸ USB')
-            for ln in lsusb.splitlines()[:30]:
-                detail_lines.append('  • ' + ln)
+            detail_lines.append('\n▸ ' + i18n.t('xray.section.usb'))
             usb_lines = lsusb.splitlines()
+            for ln in usb_lines[:30]:
+                detail_lines.append('  • ' + ln)
             if len(usb_lines) > 30:
-                detail_lines.append(f'  … (+{len(usb_lines)-30} itens)')
+                detail_lines.append(
+                    '  ' + i18n.t('xray.field.items_more',
+                                  n=len(usb_lines) - 30))
     else:
-        limitations.append('lsusb indisponível')
+        limitations.append(i18n.t('xray.error.tool_missing', tool='lsusb'))
 
-    summary = ' | '.join(summary_parts) if summary_parts else 'Hardware: informações limitadas'
+    summary = (' | '.join(summary_parts) if summary_parts
+               else i18n.t('xray.summary.limited'))
     details = '\n'.join(detail_lines).strip()
     if limitations:
-        details += '\n\n⚠ Limitações: ' + ', '.join(limitations)
+        details += ('\n\n⚠ ' + i18n.t('xray.field.limitations') + ': '
+                    + ', '.join(limitations))
     return summary, details
 
 
@@ -289,7 +536,7 @@ def collect_unprivileged() -> dict:
     bios_summary = _bios_summary(fields)
     bios_details = _bios_details(fields)
     if not fields:
-        limitations.append('DMI/BIOS não acessível sem privilégios ou indisponível')
+        limitations.append(i18n.t('xray.error.dmi'))
 
     hw_summary, hw_details = _hardware_details()
 
@@ -300,29 +547,41 @@ def collect_unprivileged() -> dict:
     flatpak_runtimes = 0
 
     if shutil.which('dpkg-query'):
-        out = _cmd("dpkg-query -W -f='${Package}\\t${Version}\\t${db:Status-Status}\\n'", timeout=60)
+        out = _cmd("dpkg-query -W -f='${Package}\\t${Version}\\t${db:Status-Status}\\t${Installed-Size}\\n'", timeout=60)
         apt_list = parse_dpkg_query(out)
     else:
-        limitations.append('dpkg-query indisponível')
+        limitations.append(i18n.t('xray.error.tool_missing', tool='dpkg-query'))
 
     if shutil.which('snap'):
         out = _cmd('snap list', timeout=30)
         snap_list = parse_snap_list(out)
     else:
-        limitations.append('snap indisponível')
+        limitations.append(i18n.t('xray.error.tool_missing', tool='snap'))
 
     if shutil.which('flatpak'):
-        out_apps = _cmd('flatpak list --app --columns=application,version', timeout=30)
+        out_apps = _cmd('flatpak list --app --columns=application,version,size', timeout=30)
         flatpak_apps = parse_flatpak_list(out_apps)
         out_rt = _cmd('flatpak list --runtime --columns=application,version', timeout=30)
         flatpak_runtimes = parse_flatpak_runtimes_count(out_rt)
     else:
-        limitations.append('flatpak indisponível')
+        limitations.append(i18n.t('xray.error.tool_missing', tool='flatpak'))
 
     prog_summary = (
         f"APT: {len(apt_list)} | Snap: {len(snap_list)} | "
         f"Flatpak: {len(flatpak_apps)} apps (+{flatpak_runtimes} runtimes)"
     )
+
+    network = collect_network()
+    system = collect_system()
+
+    try:
+        disks = systeminfo._scan_disks()
+    except Exception:
+        disks = []
+
+    alerts = build_alerts(
+        fields.get('bios_date', ''), disks, flatpak_runtimes,
+        system.get('updates', 0), datetime.now().year)
 
     return {
         'bios': {'summary': bios_summary, 'details': bios_details, 'fields': fields},
@@ -334,6 +593,10 @@ def collect_unprivileged() -> dict:
             'flatpak_runtimes': flatpak_runtimes,
             'summary': prog_summary,
         },
+        'network': network,
+        'system': system,
+        'disks': disks,
+        'alerts': alerts,
         'limitations': limitations,
     }
 
@@ -341,25 +604,25 @@ def collect_unprivileged() -> dict:
 def collect_privileged_bios() -> dict:
     if not shutil.which('dmidecode'):
         return {'ok': False, 'details': '', 'source': 'dmidecode',
-                'error': 'dmidecode não encontrado'}
+                'error': i18n.t('xray.error.tool_missing', tool='dmidecode')}
     res = execute_command(
         'dmidecode -t bios -t system -t baseboard -t chassis',
         as_root=True, timeout=60)
     if res.ok:
         return {'ok': True, 'details': res.output or '', 'source': 'dmidecode', 'error': ''}
     return {'ok': False, 'details': res.output or '', 'source': 'dmidecode',
-            'error': res.error or 'Falha ao executar dmidecode'}
+            'error': res.error or i18n.t('xray.error.exec_failed', tool='dmidecode')}
 
 
 def collect_privileged_hardware() -> dict:
     if not shutil.which('lshw'):
         return {'ok': False, 'details': '', 'source': 'lshw',
-                'error': 'lshw não encontrado'}
+                'error': i18n.t('xray.error.tool_missing', tool='lshw')}
     res = execute_command('lshw -short', as_root=True, timeout=90)
     if res.ok:
         return {'ok': True, 'details': res.output or '', 'source': 'lshw', 'error': ''}
     return {'ok': False, 'details': res.output or '', 'source': 'lshw',
-            'error': res.error or 'Falha ao executar lshw'}
+            'error': res.error or i18n.t('xray.error.exec_failed', tool='lshw')}
 
 
 PRIV_BIOS_MARK = '__CLEANIX_XRAY_BIOS__'
@@ -375,7 +638,7 @@ def collect_privileged_all() -> dict:
             'ok': False,
             'bios': {'ok': False, 'details': '', 'source': 'dmidecode'},
             'hardware': {'ok': False, 'details': '', 'source': 'lshw'},
-            'error': 'dmidecode e lshw não encontrados',
+            'error': i18n.t('xray.error.priv_none'),
         }
     bios_cmd = ('dmidecode -t bios -t system -t baseboard -t chassis 2>&1'
                 if have_bios else 'true')
@@ -411,7 +674,7 @@ def collect_privileged_all() -> dict:
             'source': 'lshw',
         },
         'error': '' if res.ok else (
-            res.error or 'Falha ao coletar os detalhes completos'),
+            res.error or i18n.t('xray.error.priv_failed')),
     }
 
 
@@ -623,6 +886,7 @@ tbody tr:nth-child(even) { background: #fbfcff; }
 tbody tr:hover { background: var(--brand-soft); }
 td.name { font-weight: 600; }
 td.ver { color: var(--muted); white-space: nowrap; }
+td.size { color: var(--muted); white-space: nowrap; }
 footer {
     margin-top: 28px;
     text-align: center;
@@ -704,13 +968,17 @@ def build_report_html(snapshot, bios_details='', hw_details='',
     def program_section(key, title, icon):
         items = programs.get(key) or []
         rows = []
-        for name, version in items:
+        for item in items:
+            name = item[0] if item else ''
+            version = item[1] if len(item) > 1 else ''
+            size = item[2] if len(item) > 2 else ''
             rows.append(
                 '<tr><td class="name">' + esc(name) + '</td>'
-                '<td class="ver">' + esc(version) + '</td></tr>')
+                '<td class="ver">' + esc(version) + '</td>'
+                '<td class="size">' + esc(size) + '</td></tr>')
         if not rows:
             rows.append(
-                '<tr><td colspan="2" class="muted">'
+                '<tr><td colspan="3" class="muted">'
                 + esc(i18n.t('xray.empty')) + '</td></tr>')
         return (
             '<div class="prog prog-' + esc(key) + '">'
@@ -720,7 +988,8 @@ def build_report_html(snapshot, bios_details='', hw_details='',
             + str(len(items)) + '</span></div>'
             '<div class="table-wrap"><table><thead><tr><th>'
             + esc(i18n.t('xray.col_name')) + '</th><th>'
-            + esc(i18n.t('xray.col_version')) + '</th></tr></thead><tbody>'
+            + esc(i18n.t('xray.col_version')) + '</th><th>'
+            + esc(i18n.t('xray.col_size')) + '</th></tr></thead><tbody>'
             + ''.join(rows) + '</tbody></table></div></div>')
 
     runtimes = programs.get('flatpak_runtimes', 0)

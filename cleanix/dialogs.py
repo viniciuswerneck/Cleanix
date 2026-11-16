@@ -1557,7 +1557,9 @@ class XRayDialog(Gtk.Window):
         items = self._prog_lists.get(key) or []
         q = (sec['search'].get_text() or '').strip().lower()
         if q:
-            filtered = [(n, v) for (n, v) in items if q in n.lower() or q in (v or '').lower()]
+            filtered = [item for item in items
+                        if q in item[0].lower()
+                        or q in (item[1] if len(item) > 1 else '').lower()]
         else:
             filtered = list(items)
         badge = sec['card']['badge']
@@ -1566,7 +1568,17 @@ class XRayDialog(Gtk.Window):
         total = len(filtered)
         show = filtered[: self.PROGRAM_RENDER_LIMIT]
         if show:
-            lines = [f"{n}  —  {v}" if v else n for (n, v) in show]
+            lines = []
+            for item in show:
+                name = item[0]
+                version = item[1] if len(item) > 1 else ''
+                size = item[2] if len(item) > 2 else ''
+                parts = [name]
+                if version:
+                    parts.extend(['—', version])
+                if size:
+                    parts.extend(['·', size])
+                lines.append(' '.join(parts))
             self._set_text_area(sec['area'], '\n'.join(lines))
         else:
             self._set_text_area(sec['area'], i18n.t('xray.empty'))

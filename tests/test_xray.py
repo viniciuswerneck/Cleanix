@@ -22,19 +22,23 @@ class DmiReadTest(unittest.TestCase):
 
 class ProgramParseTest(unittest.TestCase):
     def test_parse_dpkg_query_installed_only(self):
-        text = "bash\t5.2\tinstalled\nfoo\t1.0\tconfig-files\n"
+        text = ("bash\t5.2\tinstalled\t6000\n"
+                "foo\t1.0\tconfig-files\t10\n")
         pkgs = xray.parse_dpkg_query(text)
-        self.assertEqual(pkgs, [('bash', '5.2')])
+        self.assertEqual(len(pkgs), 1)
+        self.assertEqual(pkgs[0][:2], ('bash', '5.2'))
+        self.assertTrue(pkgs[0][2])
 
     def test_parse_snap_list(self):
         text = "Name  Version  Rev\ncore  16-2    1\nfirefox  120  10\n"
         pkgs = xray.parse_snap_list(text)
-        self.assertIn(('firefox', '120'), pkgs)
-        self.assertNotIn(('Name', 'Version'), pkgs)
+        self.assertIn(('firefox', '120', ''), pkgs)
+        self.assertNotIn(('Name', 'Version', ''), pkgs)
 
     def test_parse_flatpak_apps_and_runtimes(self):
-        apps = xray.parse_flatpak_list("org.gimp.GIMP\t2.10\tstable\n")
-        self.assertEqual(apps, [('org.gimp.GIMP', '2.10')])
+        apps = xray.parse_flatpak_list(
+            "org.gimp.GIMP\t2.10\t120 MB\n")
+        self.assertEqual(apps, [('org.gimp.GIMP', '2.10', '120 MB')])
         rt = xray.parse_flatpak_runtimes_count(
             "org.freedesktop.Platform\t23.08\norg.gnome.Platform\t45\n")
         self.assertEqual(rt, 2)
@@ -114,3 +118,115 @@ class ReportHtmlTest(unittest.TestCase):
             self._snapshot(), priv_error='Not authorized')
         self.assertIn('Detalhes completos não incluídos', html)
         self.assertIn('Not authorized', html)
+
+
+
+class RedactionTest(unittest.TestCase):
+    def test_masks_dmidecode_identifiers(self):
+        text = ("Serial Number: ABC123\n"
+                "UUID: 1234-5678\n"
+                "SKU Number: SKU-9\n"
+                "Asset Tag: TAG-1\n"
+                "  serial: LSHW-99\n"
+                "Version: 1.0\n")
+        out = xray.redact_sensitive(text)
+        for secret in ('ABC123', '1234-5678', 'SKU-9', 'TAG-1', 'LSHW-99'):
+            self.assertNotIn(secret, out)
+        self.assertIn('[oculto]', out)
+        self.assertIn('Version: 1.0', out)
+
+    def test_masking_is_case_insensitive(self):
+        out = xray.redact_sensitive("SERIAL NUMBER: zzz\n")
+        self.assertNotIn('zzz', out)
+
+
+class TranslatedDetailsTest(unittest.TestCase):
+    def test_bios_details_follow_language(self):
+        from cleanix import i18n
+        i18n.set_language('en')
+        try:
+            text = xray._bios_details({
+                'bios_vendor': 'ACME', 'bios_version': '1.0'})
+        finally:
+            i18n.set_language('pt_BR')
+        self.assertIn('vendor', text.lower())
+        self.assertIn('ACME', text)
+
+
+class NetworkAndSystemTest(unittest.TestCase):
+    def test_parse_ip_brief(self):
+        text = ("lo               UNKNOWN        127.0.0.1/8 ::1/128\n"
+                "enp3s0           UP             192.168.0.10/24 fe80::1/64\n"
+                "wlan0            DOWN\n")
+        ifaces = xray.parse_ip_brief(text)
+        self.assertEqual([i['name'] for i in ifaces], ['lo', 'enp3s0', 'wlan0'])
+        self.assertEqual(ifaces[1]['state'], 'UP')
+        self.assertIn('192.168.0.10/24', ifaces[1]['addresses'])
+        self.assertEqual(ifaces[2]['addresses'], [])
+
+    def test_parse_ip_brief_ignores_empty_output(self):
+        self.assertEqual(xray.parse_ip_brief(''), [])
+        self.assertEqual(xray.parse_ip_brief('\n\n'), [])
+
+    @mock.patch.object(xray, '_read_mac', return_value='aa:bb:cc:dd:ee:ff')
+    @mock.patch.object(xray, '_cmd',
+                       return_value='lo UNKNOWN 127.0.0.1/8\n'
+                                    'enp3s0 UP 10.0.0.2/24\n')
+    def test_collect_network_excludes_loopback(self, _cmd, _mac):
+        net = xray.collect_network()
+        self.assertEqual([i['name'] for i in net['interfaces']], ['enp3s0'])
+        self.assertEqual(net['interfaces'][0]['mac'], 'aa:bb:cc:dd:ee:ff')
+        self.assertIn('10.0.0.2/24', net['details'])
+
+    def test_parse_uptime(self):
+        self.assertEqual(xray.parse_uptime('90061.5 1000.0\n'), 90061)
+        self.assertEqual(xray.parse_uptime(''), 0)
+        self.assertEqual(xray.parse_uptime('lixo'), 0)
+
+    def test_format_uptime(self):
+        text = xray.format_uptime(90061)
+        self.assertIn('1', text)
+        self.assertTrue(text)
+
+    def test_parse_apt_upgradable(self):
+        text = ("Listing...\n"
+                "foo/jammy 1.0 amd64 [upgradable from: 0.9]\n"
+                "bar/jammy 2.0 amd64 [upgradable from: 1.0]\n")
+        self.assertEqual(xray.parse_apt_upgradable(text), 2)
+        self.assertEqual(xray.parse_apt_upgradable('Listing...\n'), 0)
+
+    def test_secure_boot_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            self.assertEqual(xray.secure_boot_state(d), '')
+            f = base / 'SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c'
+            f.write_bytes(b'\x06\x00\x00\x00\x01')
+            self.assertEqual(xray.secure_boot_state(d), 'enabled')
+            f.write_bytes(b'\x06\x00\x00\x00\x00')
+            self.assertEqual(xray.secure_boot_state(d), 'disabled')
+
+
+class AlertsTest(unittest.TestCase):
+    def test_build_alerts(self):
+        disks = [
+            {'mount_point': '/', 'pct_used': 95},
+            {'mount_point': '/home', 'pct_used': 40},
+        ]
+        alerts = xray.build_alerts('09/25/2015', disks, 22, 0, 2026)
+        levels = [a['level'] for a in alerts]
+        self.assertEqual(levels.count('warn'), 2)
+        self.assertEqual(levels.count('info'), 1)
+        self.assertTrue(all(a.get('text') for a in alerts))
+
+    def test_build_alerts_quiet_machine(self):
+        disks = [{'mount_point': '/', 'pct_used': 30}]
+        self.assertEqual(
+            xray.build_alerts('01/01/2025', disks, 2, 0, 2026), [])
+
+    def test_build_alerts_pending_updates(self):
+        alerts = xray.build_alerts('', [], 0, 5, 2026)
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]['level'], 'info')
+
+    def test_build_alerts_tolerates_bad_bios_date(self):
+        self.assertEqual(xray.build_alerts('???', [], 0, 0, 2026), [])
