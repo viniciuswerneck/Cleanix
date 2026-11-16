@@ -1004,6 +1004,12 @@ class SmartHealthDialog(Gtk.Window):
         spacer.set_hexpand(True)
         footer.append(spacer)
 
+        self.install_btn = Gtk.Button(label=i18n.t('smart.install'))
+        self.install_btn.add_css_class('btn-secondary')
+        self.install_btn.set_visible(False)
+        self.install_btn.connect('clicked', lambda *_: self._start_install())
+        footer.append(self.install_btn)
+
         self.check_btn = Gtk.Button(label=i18n.t('disks.smart_check'))
         self.check_btn.add_css_class('btn-green')
         self.check_btn.connect('clicked', lambda *_: self._start())
@@ -1019,6 +1025,7 @@ class SmartHealthDialog(Gtk.Window):
         if not self.check_btn.get_sensitive():
             return False
         self.check_btn.set_sensitive(False)
+        self._set_install_visible(False)
         self.status.set_text(i18n.t('smart.running'))
         self.overall_label.set_text('')
         self.attrs_label.set_text('')
@@ -1027,15 +1034,20 @@ class SmartHealthDialog(Gtk.Window):
                          name='cleanix-smart').start()
         return False
 
+    def _set_install_visible(self, visible):
+        if hasattr(self, 'install_btn'):
+            self.install_btn.set_visible(visible)
+            self.install_btn.set_sensitive(visible)
+
     def _work(self):
         if not re.fullmatch(r'[A-Za-z0-9_-]+', self.disk_name or ''):
             GLib.idle_add(self._done_missing, i18n.t('smart.error'),
-                          i18n.t('smart.invalid_disk'))
+                          i18n.t('smart.invalid_disk'), False)
             return
         if not systeminfo.smartctl_available():
             GLib.idle_add(self._done_missing,
                           i18n.t('smart.not_installed.title'),
-                          i18n.t('smart.not_installed.body'))
+                          i18n.t('smart.not_installed.body'), True)
             return
         cmd = f'smartctl -H -A /dev/{self.disk_name}'
         result = execute_command(cmd, as_root=True)
@@ -1043,11 +1055,42 @@ class SmartHealthDialog(Gtk.Window):
             (result.output or '') + '\n' + (result.error or ''))
         GLib.idle_add(self._done, result, parsed)
 
-    def _done_missing(self, title, body):
+    def _done_missing(self, title, body, can_install=False):
         self.check_btn.set_sensitive(True)
         self.status.set_text('')
         self.overall_label.set_text(title)
         self.details_label.set_text(body)
+        self._set_install_visible(bool(can_install))
+        return GLib.SOURCE_REMOVE
+
+    def _start_install(self):
+        if not self.install_btn.get_sensitive():
+            return
+        self.install_btn.set_sensitive(False)
+        self.check_btn.set_sensitive(False)
+        self.status.set_text(i18n.t('smart.installing'))
+        threading.Thread(target=self._install_work, daemon=True,
+                         name='cleanix-smart-install').start()
+
+    def _install_work(self):
+        cmd = 'apt-get install -y smartmontools'
+        result = execute_command(cmd, as_root=True)
+        GLib.idle_add(self._install_done, result)
+
+    def _install_done(self, result):
+        self.check_btn.set_sensitive(True)
+        if result.ok and systeminfo.smartctl_available():
+            self.status.set_text(i18n.t('smart.installed'))
+            # tenta verificar automaticamente
+            self._start()
+        else:
+            self.install_btn.set_sensitive(True)
+            self.status.set_text(i18n.t('smart.install_failed'))
+            msg = self.details_label.get_text() or ''
+            err = _limit(result.error) if not result.ok else ''
+            extra = err or ('' if systeminfo.smartctl_available() else i18n.t('smart.not_installed.body'))
+            if extra and extra not in msg:
+                self.details_label.set_text((msg + '\n\n' + extra).strip())
         return GLib.SOURCE_REMOVE
 
     def _done(self, result, parsed):
