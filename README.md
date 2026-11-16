@@ -148,6 +148,35 @@ Todos os textos da interface ficam em catálogos JSON planos:
 Para adicionar ou corrigir um texto, edite a mesma chave nos três catálogos.
 Não há etapa de build: o app lê os JSON direto do código.
 
+
+## O que é seguro limpar
+
+- **Lixeira, miniaturas, cache de navegadores e temporários do usuário:** são
+  arquivos recriáveis; a limpeza remove apenas o conteúdo dentro das categorias
+  selecionadas e nunca apaga as pastas-raiz.
+- **Cache do APT / autoremove / Snap e Flatpak não usados:** o app mostra uma
+  **prévia** do que será removido e pede **confirmação** (e senha de
+  administrador quando necessário). Revise a lista antes de confirmar.
+- **Análise de espaço:** serve para **revisar** arquivos grandes e duplicados;
+  nada é apagado automaticamente (você pode abrir a pasta do item e decidir).
+- **Lembretes:** são apenas avisos opcionais (opt-in), sem limpeza automática.
+
+## Solução de problemas
+
+- **Saúde SMART indisponível:** instale o `smartmontools` (o app oferece ajuda)
+  e, em alguns discos/controladores, a leitura pode não ser suportada.
+- **Ação do Otimizador indisponível:** APT, Snap, Flatpak ou `fstrim` só aparecem
+  quando existem no sistema; em outros ambientes o recurso fica indisponível.
+- **Permissão negada / senha:** ações administrativas pedem a senha do sistema via
+  `pkexec`. Se cancelar, nada é alterado.
+- **Análise de espaço lenta:** pastas com muitos arquivos ou muitos duplicados
+  demoram mais (o cálculo de hash compara conteúdo). Use **cancelar** para ver o
+  resultado parcial, escolha uma pasta menor, aumente o tamanho mínimo ou exclua
+  pastas.
+- **Algumas pastas não aparecem na análise:** a varredura ignora itens sem
+  permissão de leitura e não segue links simbólicos, por segurança.
+
+
 ## Segurança
 
 A limpeza do usuário é limitada a uma allowlist fechada: lixeira, miniaturas,
