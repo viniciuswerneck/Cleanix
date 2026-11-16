@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import i18n, systeminfo
+from . import version as cleanix_version
 from .execution import execute_command
 
 
@@ -699,6 +700,41 @@ _REPORT_CSS = """
     --green: #15803d;
     --orange: #b45309;
     --teal: #0f766e;
+    --soft: #fbfcff;
+    --code: #f7f9fd;
+    --head: #f8fafd;
+    --even: #fbfcff;
+    --row-line: #f0f3f9;
+    --warn-bg: #fff8ef;
+    --warn-line: #f3d3a7;
+    --warn-ink: #7c3f06;
+    --info-bg: #eef6ff;
+    --info-line: #c7ddfb;
+    --info-ink: #1e4b8f;
+}
+html[data-theme="dark"] {
+    --bg: #0f1420;
+    --card: #171e2e;
+    --ink: #e8ecf6;
+    --muted: #9aa6bf;
+    --line: #2a3448;
+    --brand: #6b9bff;
+    --brand-soft: #1d2942;
+    --purple: #a78bfa;
+    --green: #4ade80;
+    --orange: #fbbf24;
+    --teal: #5eead4;
+    --soft: #141b29;
+    --code: #121826;
+    --head: #141b29;
+    --even: #141b29;
+    --row-line: #232c3e;
+    --warn-bg: #2a2113;
+    --warn-line: #5a4420;
+    --warn-ink: #f3d9a7;
+    --info-bg: #14243c;
+    --info-line: #2a4a76;
+    --info-ink: #c7ddfb;
 }
 * { box-sizing: border-box; }
 body {
@@ -730,11 +766,28 @@ body {
 }
 h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -.01em; }
 .meta { margin: 0; font-size: 14px; color: rgba(255, 255, 255, .84); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.toolbar button, .toolbar a {
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(28, 35, 51, .05);
+}
+.toolbar button:hover, .toolbar a:hover {
+    border-color: var(--brand);
+    color: var(--brand);
+}
 nav.toc { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0; }
 nav.toc a {
     padding: 8px 14px;
     border-radius: 999px;
-    background: #fff;
+    background: var(--card);
     border: 1px solid var(--line);
     color: var(--ink);
     font-size: 13px;
@@ -781,7 +834,7 @@ nav.toc a:hover { border-color: var(--brand); color: var(--brand); }
     padding: 14px;
     border: 1px solid var(--line);
     border-radius: 14px;
-    background: #fbfcff;
+    background: var(--soft);
 }
 .stat .label {
     display: block;
@@ -793,6 +846,19 @@ nav.toc a:hover { border-color: var(--brand); color: var(--brand); }
     color: var(--muted);
 }
 .stat .value { margin: 0; font-size: 14px; }
+.alert {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin: 8px 0;
+    padding: 12px 14px;
+    border: 1px solid;
+    border-radius: 12px;
+    font-size: 14px;
+}
+.alert p { margin: 0; }
+.alert.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+.alert.info { background: var(--info-bg); border-color: var(--info-line); color: var(--info-ink); }
 pre.code {
     margin: 0;
     padding: 14px 16px;
@@ -800,7 +866,7 @@ pre.code {
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-word;
-    background: #f7f9fd;
+    background: var(--code);
     border: 1px solid var(--line);
     border-radius: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -809,14 +875,15 @@ pre.code {
 }
 .muted { color: var(--muted); }
 .note { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+.privacy { margin-top: 10px; }
 .notice {
     margin-top: 18px;
     padding: 14px 18px;
-    border: 1px solid #f3d3a7;
+    border: 1px solid var(--warn-line);
     border-left: 4px solid var(--orange);
     border-radius: 12px;
-    background: #fff8ef;
-    color: #7c3f06;
+    background: var(--warn-bg);
+    color: var(--warn-ink);
     font-size: 14px;
 }
 .notice p { margin: 4px 0 0; }
@@ -828,7 +895,7 @@ ul.plain li { margin: 4px 0; }
     padding: 11px 15px;
     border: 1px solid var(--line);
     border-radius: 12px;
-    background: #fbfcff;
+    background: var(--soft);
     color: var(--ink);
     font-size: 14px;
     outline: none;
@@ -849,7 +916,7 @@ ul.plain li { margin: 4px 0; }
     align-items: center;
     gap: 10px;
     padding: 12px 16px;
-    background: #f8fafd;
+    background: var(--head);
     border-bottom: 1px solid var(--line);
 }
 .prog-head h3 { margin: 0; font-size: 15px; }
@@ -873,7 +940,7 @@ thead th {
     top: 0;
     z-index: 1;
     padding: 9px 16px;
-    background: #fff;
+    background: var(--card);
     border-bottom: 1px solid var(--line);
     text-align: left;
     font-size: 11px;
@@ -881,12 +948,16 @@ thead th {
     text-transform: uppercase;
     color: var(--muted);
 }
-tbody td { padding: 8px 16px; border-bottom: 1px solid #f0f3f9; }
-tbody tr:nth-child(even) { background: #fbfcff; }
+table.sortable thead th { cursor: pointer; user-select: none; }
+table.sortable thead th[data-dir="asc"]::after { content: " ▲"; }
+table.sortable thead th[data-dir="desc"]::after { content: " ▼"; }
+tbody td { padding: 8px 16px; border-bottom: 1px solid var(--row-line); }
+tbody tr:nth-child(even) { background: var(--even); }
 tbody tr:hover { background: var(--brand-soft); }
 td.name { font-weight: 600; }
 td.ver { color: var(--muted); white-space: nowrap; }
 td.size { color: var(--muted); white-space: nowrap; }
+td.num { white-space: nowrap; }
 footer {
     margin-top: 28px;
     text-align: center;
@@ -900,12 +971,12 @@ footer {
 @media print {
     body { background: #fff; }
     .wrap { max-width: none; padding: 0; }
-    .hero, nav.toc, .card, .stat, .notice, .count {
+    .hero, nav.toc, .card, .stat, .notice, .count, .alert {
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
     }
     .hero { box-shadow: none; }
-    nav.toc, .search { display: none; }
+    .toolbar, nav.toc, .search { display: none; }
     .card { box-shadow: none; break-inside: avoid; }
     .table-wrap, pre.code { max-height: none; overflow: visible; }
     thead th { position: static; }
@@ -914,6 +985,60 @@ footer {
 
 _REPORT_JS = """
 (function () {
+    var root = document.documentElement;
+    try {
+        var saved = localStorage.getItem('cleanix-theme');
+        if (saved === 'dark' || saved === 'light') {
+            root.setAttribute('data-theme', saved);
+        }
+    } catch (e) {}
+
+    var theme = document.getElementById('xray-theme');
+    if (theme) {
+        theme.addEventListener('click', function () {
+            var next = root.getAttribute('data-theme') === 'dark'
+                ? 'light' : 'dark';
+            root.setAttribute('data-theme', next);
+            try { localStorage.setItem('cleanix-theme', next); } catch (e) {}
+        });
+    }
+
+    var printBtn = document.getElementById('xray-print');
+    if (printBtn) {
+        printBtn.addEventListener('click', function () { window.print(); });
+    }
+
+    var topBtn = document.getElementById('xray-top');
+    if (topBtn) {
+        topBtn.addEventListener('click', function (event) {
+            event.preventDefault();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+    }
+
+    document.querySelectorAll('table.sortable thead th').forEach(
+        function (th, index) {
+            th.addEventListener('click', function () {
+                var table = th.closest('table');
+                var body = table.tBodies[0];
+                var rows = Array.prototype.slice.call(body.rows);
+                var dir = th.getAttribute('data-dir') === 'asc' ? -1 : 1;
+                table.querySelectorAll('thead th').forEach(function (h) {
+                    h.removeAttribute('data-dir');
+                });
+                th.setAttribute('data-dir', dir === 1 ? 'asc' : 'desc');
+                rows.sort(function (a, b) {
+                    var av = a.cells[index]
+                        ? a.cells[index].textContent.trim() : '';
+                    var bv = b.cells[index]
+                        ? b.cells[index].textContent.trim() : '';
+                    return av.localeCompare(
+                        bv, undefined, { numeric: true }) * dir;
+                });
+                rows.forEach(function (row) { body.appendChild(row); });
+            });
+        });
+
     var input = document.getElementById('xray-search');
     if (!input) { return; }
     function apply() {
@@ -922,12 +1047,17 @@ _REPORT_JS = """
             var rows = section.querySelectorAll('tbody tr');
             var shown = 0;
             rows.forEach(function (row) {
-                var hit = !term || row.textContent.toLowerCase().indexOf(term) !== -1;
+                var hit = !term
+                    || row.textContent.toLowerCase().indexOf(term) !== -1;
                 row.hidden = !hit;
-                if (hit && row.querySelector('td')) { shown++; }
+                if (hit && row.querySelector('td:not([colspan])')) {
+                    shown++;
+                }
             });
             var counter = section.querySelector('.shown');
-            if (counter) { counter.textContent = shown + ' / ' + rows.length; }
+            if (counter) {
+                counter.textContent = shown + ' / ' + rows.length;
+            }
         });
     }
     input.addEventListener('input', apply);
@@ -937,7 +1067,8 @@ _REPORT_JS = """
 
 
 def build_report_html(snapshot, bios_details='', hw_details='',
-                      bios_source='', hw_source='', priv_error=''):
+                      bios_source='', hw_source='', priv_error='',
+                      redact=True):
     """Monta o relatório HTML completo (autocontido) do Raio-X."""
     import html as html_lib
     from datetime import datetime
@@ -946,6 +1077,10 @@ def build_report_html(snapshot, bios_details='', hw_details='',
     bios = snap.get('bios', {}) or {}
     hardware = snap.get('hardware', {}) or {}
     programs = snap.get('programs', {}) or {}
+    network = snap.get('network', {}) or {}
+    system = snap.get('system', {}) or {}
+    disks = snap.get('disks', []) or []
+    alerts = snap.get('alerts', []) or []
     fields = bios.get('fields') or {}
     limitations = snap.get('limitations') or []
 
@@ -957,6 +1092,20 @@ def build_report_html(snapshot, bios_details='', hw_details='',
             return ('<p class="muted">'
                     + esc(i18n.t('xray.unavailable')) + '</p>')
         return '<pre class="code">' + esc(text) + '</pre>'
+
+    def redact_macs(text):
+        if not redact or not text:
+            return text
+        return re.sub(
+            r'(?im)^(\s*MAC:\s*).*$',
+            r'\1' + i18n.t('xray.redacted'), text)
+
+    bios_details = bios_details or bios.get('details') or ''
+    hw_details = hw_details or hardware.get('details') or ''
+    if redact:
+        bios_details = redact_sensitive(bios_details)
+        hw_details = redact_sensitive(hw_details)
+    network_details = redact_macs(network.get('details') or '')
 
     product = fields.get('product_name') or fields.get('sys_vendor') or ''
     os_name = os_pretty_name()
@@ -986,7 +1135,7 @@ def build_report_html(snapshot, bios_details='', hw_details='',
             + ' <span class="count">' + str(len(items)) + '</span></h3>'
             + '<span class="shown">' + str(len(items)) + ' / '
             + str(len(items)) + '</span></div>'
-            '<div class="table-wrap"><table><thead><tr><th>'
+            '<div class="table-wrap"><table class="sortable"><thead><tr><th>'
             + esc(i18n.t('xray.col_name')) + '</th><th>'
             + esc(i18n.t('xray.col_version')) + '</th><th>'
             + esc(i18n.t('xray.col_size')) + '</th></tr></thead><tbody>'
@@ -1008,6 +1157,43 @@ def build_report_html(snapshot, bios_details='', hw_details='',
             + esc(i18n.t('xray.html.priv_missing_body', detail=priv_error))
             + '</p></div>')
 
+    privacy_note = ''
+    if redact:
+        privacy_note = (
+            '<p class="note privacy">🔒 '
+            + esc(i18n.t('xray.html.redacted_notice')) + '</p>')
+
+    alerts_html = ''
+    for alert in alerts:
+        level = 'warn' if alert.get('level') == 'warn' else 'info'
+        icon = '⚠️' if level == 'warn' else 'ℹ️'
+        alerts_html += (
+            '<div class="alert ' + level + '"><span>' + icon + '</span><p>'
+            + esc(alert.get('text')) + '</p></div>')
+    if not alerts_html:
+        alerts_html = ('<p class="muted">'
+                       + esc(i18n.t('xray.html.no_alerts')) + '</p>')
+
+    disk_rows = []
+    for disk in disks:
+        total = disk.get('size_total') or 0
+        used = disk.get('size_used') or 0
+        pct = disk.get('pct_used')
+        pct_text = f'{pct}%' if pct is not None else ''
+        disk_rows.append(
+            '<tr><td class="name">' + esc(disk.get('name')) + '</td>'
+            '<td>' + esc(disk.get('type')) + '</td>'
+            '<td class="num">'
+            + esc(systeminfo.format_bytes(total) if total else '') + '</td>'
+            '<td class="num">'
+            + esc(systeminfo.format_bytes(used) if total else '') + '</td>'
+            '<td class="num">' + esc(pct_text) + '</td>'
+            '<td>' + esc(disk.get('mount_point')) + '</td></tr>')
+    if not disk_rows:
+        disk_rows.append(
+            '<tr><td colspan="6" class="muted">'
+            + esc(i18n.t('disks.none')) + '</td></tr>')
+
     limitations_html = ''
     if limitations:
         items = ''.join('<li>' + esc(item) + '</li>' for item in limitations)
@@ -1027,20 +1213,35 @@ def build_report_html(snapshot, bios_details='', hw_details='',
 
     doc = (
         '<!doctype html>\n'
-        '<html lang="' + esc(i18n.get_language().replace('_', '-')) + '">\n'
+        '<html lang="' + esc(i18n.get_language().replace('_', '-'))
+        + '" data-theme="light">\n'
         '<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
         '<title>' + esc(i18n.t('xray.title')) + ' · Cleanix</title>\n'
-        '<style>' + _REPORT_CSS + '</style>\n</head>\n<body>\n'
+        '<style>' + _REPORT_CSS + '</style>\n</head>\n'
+        '<body id="top">\n'
         '<div class="wrap">\n'
         '<header class="hero"><div class="hero-icon">🖥️</div>'
         '<div><p class="eyebrow">Cleanix</p><h1>'
         + esc(i18n.t('xray.title')) + '</h1><p class="meta">' + esc(meta)
         + '</p></div></header>\n'
+        '<div class="toolbar">'
+        '<button id="xray-print" type="button">🖨️ '
+        + esc(i18n.t('xray.html.print')) + '</button>'
+        '<button id="xray-theme" type="button">🌗 '
+        + esc(i18n.t('xray.html.theme')) + '</button>'
+        '<a id="xray-top" href="#top">⬆️ '
+        + esc(i18n.t('xray.html.top')) + '</a>'
+        '</div>\n'
+        + privacy_note + '\n'
         '<nav class="toc">'
         '<a href="#resumo">🔎 ' + esc(i18n.t('xray.summary')) + '</a>'
+        '<a href="#destaques">⭐ ' + esc(i18n.t('xray.html.alerts')) + '</a>'
         '<a href="#bios">🧩 ' + esc(i18n.t('xray.bios')) + '</a>'
         '<a href="#hardware">⚙️ ' + esc(i18n.t('xray.hardware')) + '</a>'
+        '<a href="#rede">🌐 ' + esc(i18n.t('xray.section.network')) + '</a>'
+        '<a href="#sistema">🩺 ' + esc(i18n.t('xray.section.systeminfo')) + '</a>'
+        '<a href="#discos">💽 ' + esc(i18n.t('xray.section.disks')) + '</a>'
         '<a href="#programas">📦 ' + esc(i18n.t('xray.programs')) + '</a>'
         '</nav>\n'
         + notice + '\n'
@@ -1057,6 +1258,9 @@ def build_report_html(snapshot, bios_details='', hw_details='',
         + esc(i18n.t('xray.programs')) + '</span><p class="value">'
         + esc(summary_prog) + '</p></div>'
         '</div></section>\n'
+        '<section class="card" id="destaques">'
+        '<h2>⭐ ' + esc(i18n.t('xray.html.alerts')) + '</h2>'
+        + alerts_html + '</section>\n'
         '<section class="card" id="bios">'
         '<div class="section-head"><h2>🧩 ' + esc(i18n.t('xray.bios'))
         + '</h2><span class="pill">'
@@ -1067,6 +1271,24 @@ def build_report_html(snapshot, bios_details='', hw_details='',
         + '</h2><span class="pill">'
         + esc(hw_source or i18n.t('xray.source_unprivileged'))
         + '</span></div>' + code_block(hw_details) + '</section>\n'
+        '<section class="card" id="rede">'
+        '<h2>🌐 ' + esc(i18n.t('xray.section.network')) + '</h2>'
+        '<p class="note">' + esc(network.get('summary') or '') + '</p>'
+        + code_block(network_details) + '</section>\n'
+        '<section class="card" id="sistema">'
+        '<h2>🩺 ' + esc(i18n.t('xray.section.systeminfo')) + '</h2>'
+        '<p class="note">' + esc(system.get('summary') or '') + '</p>'
+        + code_block(system.get('details') or '') + '</section>\n'
+        '<section class="card" id="discos">'
+        '<h2>💽 ' + esc(i18n.t('xray.section.disks')) + '</h2>'
+        '<div class="table-wrap"><table class="sortable"><thead><tr><th>'
+        + esc(i18n.t('xray.col_disk')) + '</th><th>'
+        + esc(i18n.t('xray.col_type')) + '</th><th>'
+        + esc(i18n.t('xray.col_total')) + '</th><th>'
+        + esc(i18n.t('xray.col_used')) + '</th><th>'
+        + esc(i18n.t('xray.col_pct')) + '</th><th>'
+        + esc(i18n.t('xray.col_mount')) + '</th></tr></thead><tbody>'
+        + ''.join(disk_rows) + '</tbody></table></div></section>\n'
         '<section class="card" id="programas">'
         '<h2>📦 ' + esc(i18n.t('xray.programs')) + '</h2>'
         '<p class="note">'
@@ -1076,6 +1298,9 @@ def build_report_html(snapshot, bios_details='', hw_details='',
         + program_html + '</section>\n'
         + limitations_html
         + '\n<footer>'
-        + esc(i18n.t('xray.html.footer')) + ' · Cleanix</footer>\n'
+        + esc(i18n.t('xray.html.footer')) + ' · Cleanix v'
+        + esc(cleanix_version) + ' · '
+        + esc(i18n.t('xray.html.generated', date=generated))
+        + '</footer>\n'
         '</div>\n<script>' + _REPORT_JS + '</script>\n</body>\n</html>\n')
     return doc

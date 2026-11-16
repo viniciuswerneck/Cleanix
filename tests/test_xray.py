@@ -230,3 +230,70 @@ class AlertsTest(unittest.TestCase):
 
     def test_build_alerts_tolerates_bad_bios_date(self):
         self.assertEqual(xray.build_alerts('???', [], 0, 0, 2026), [])
+
+
+class ReportHtmlV2Test(unittest.TestCase):
+    def _snapshot(self):
+        return {
+            'bios': {'summary': 'BIOS: ACME', 'details': 'basic',
+                     'fields': {}},
+            'hardware': {'summary': 'CPU: Test', 'details': 'basic'},
+            'programs': {'apt': [], 'snap': [], 'flatpak_apps': [],
+                         'flatpak_runtimes': 0, 'summary': ''},
+            'network': {
+                'summary': '1 interface',
+                'details': 'enp3s0 UP\n    IP: 10.0.0.2/24\n'
+                           '    MAC: aa:bb:cc:dd:ee:ff',
+                'interfaces': [{
+                    'name': 'enp3s0', 'state': 'UP',
+                    'addresses': ['10.0.0.2/24'],
+                    'mac': 'aa:bb:cc:dd:ee:ff',
+                }],
+            },
+            'system': {'summary': 'Uptime: 1 d', 'details': 'sistema',
+                       'uptime': '1 d', 'updates': 3,
+                       'secure_boot': 'enabled', 'tpm': True},
+            'disks': [{
+                'name': 'sda', 'type': 'disk',
+                'size_total': 500107862016, 'size_used': 475102469000,
+                'pct_used': 95, 'mount_point': '',
+            }],
+            'alerts': [{'level': 'warn',
+                        'text': 'Partição / com 95% de uso'}],
+            'limitations': [],
+        }
+
+    def test_report_contains_new_sections(self):
+        html = xray.build_report_html(self._snapshot())
+        for anchor in ('id="destaques"', 'id="rede"', 'id="sistema"',
+                       'id="discos"'):
+            self.assertIn(anchor, html)
+        self.assertIn('enp3s0', html)
+        self.assertIn('sda', html)
+        self.assertIn('95%', html)
+
+    def test_report_has_actions_and_version(self):
+        from cleanix import version
+        html = xray.build_report_html(self._snapshot())
+        for anchor in ('id="xray-print"', 'id="xray-theme"', 'id="xray-top"'):
+            self.assertIn(anchor, html)
+        self.assertIn(version, html)
+
+    def test_report_redacts_identifiers_by_default(self):
+        details = 'Serial Number: SECRET-1\nUUID: SECRET-2\n'
+        html = xray.build_report_html(
+            self._snapshot(), bios_details=details)
+        self.assertNotIn('SECRET-1', html)
+        self.assertNotIn('SECRET-2', html)
+
+    def test_report_can_keep_identifiers(self):
+        details = 'Serial Number: SECRET-1\n'
+        html = xray.build_report_html(
+            self._snapshot(), bios_details=details, redact=False)
+        self.assertIn('SECRET-1', html)
+
+    def test_report_redacts_network_mac(self):
+        html = xray.build_report_html(self._snapshot())
+        self.assertNotIn('aa:bb:cc:dd:ee:ff', html)
+        html = xray.build_report_html(self._snapshot(), redact=False)
+        self.assertIn('aa:bb:cc:dd:ee:ff', html)
