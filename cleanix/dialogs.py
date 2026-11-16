@@ -263,6 +263,7 @@ class _ActionDialog(Gtk.Window):
         root.append(separator)
 
         self.status = _txt('', 'muted', wrap=True)
+        self.status.set_visible(False)
         root.append(self.status)
 
         close = Gtk.Button(label=i18n.t('common.close'))
@@ -1161,8 +1162,16 @@ class XRayDialog(Gtk.Window):
         root.set_margin_start(18)
         root.set_margin_end(18)
 
-        head = _hbox(8)
-        head.append(_icon('🖥️'))
+        hero = _vbox(0)
+        hero.add_css_class('xray-hero')
+        head = _hbox(12)
+        head.set_margin_top(16)
+        head.set_margin_bottom(16)
+        head.set_margin_start(18)
+        head.set_margin_end(18)
+        hero_icon = _icon('🖥️')
+        hero_icon.add_css_class('xray-hero-icon')
+        head.append(hero_icon)
         title_box = _vbox(2)
         title_box.set_hexpand(True)
         title_box.append(_txt(i18n.t('xray.title'), 'dialog-title'))
@@ -1170,74 +1179,79 @@ class XRayDialog(Gtk.Window):
         head.append(title_box)
         self.refresh_btn = Gtk.Button(label=i18n.t('xray.refresh'))
         self.refresh_btn.add_css_class('status-btn')
+        self.refresh_btn.add_css_class('xray-refresh')
         self.refresh_btn.connect('clicked', lambda *_: self._collect())
         head.append(self.refresh_btn)
-        root.append(head)
+        hero.append(head)
+        root.append(hero)
 
         # Resumo
-        summary_card = _vbox(6)
+        summary_card = _vbox(2)
         summary_card.add_css_class('xray-summary-card')
         summary_card.append(_txt(i18n.t('xray.summary'), 'card-title'))
-        self.summary_bios = _txt('—', 'xray-summary-line', wrap=True)
-        self.summary_hw = _txt('—', 'xray-summary-line', wrap=True)
-        self.summary_prog = _txt('—', 'xray-summary-line', wrap=True)
-        for w in (self.summary_bios, self.summary_hw, self.summary_prog):
-            summary_card.append(w)
+        self.summary_bios = self._make_summary_row(
+            summary_card, '🧩', 'xray.bios', 'blue')
+        self.summary_hw = self._make_summary_row(
+            summary_card, '⚙️', 'xray.hardware', 'purple')
+        self.summary_prog = self._make_summary_row(
+            summary_card, '📦', 'xray.programs', 'green')
         root.append(summary_card)
 
         self.status = _txt('', 'muted', wrap=True)
         root.append(self.status)
 
-        # BIOS expander
+        # BIOS
         self.bios_details = self._make_text_area(180)
         self.bios_source = _txt('', 'xray-source')
         self.bios_full_btn = Gtk.Button(label='🔒 ' + i18n.t('xray.details_full'))
         self.bios_full_btn.add_css_class('btn-secondary')
+        self.bios_full_btn.add_css_class('xray-action')
         self.bios_full_btn.connect('clicked', lambda *_: self._fetch_priv_bios())
-        bios_box = _vbox(8)
-        bios_box.add_css_class('xray-topic')
+        bios_box = _vbox(10)
         bios_box.append(self.bios_source)
         bios_box.append(self.bios_details['scroll'])
         bios_box.append(self.bios_full_btn)
-        self.exp_bios = Gtk.Expander(label='🧩 ' + i18n.t('xray.bios'))
-        self.exp_bios.set_child(bios_box)
-        self.exp_bios.connect('notify::expanded', self._on_expand_bios)
-        root.append(self.exp_bios)
+        self.bios_card = self._make_card(
+            '🧩', i18n.t('xray.bios'), i18n.t('xray.bios.subtitle'),
+            variant='blue', on_open=self._load_bios_details)
+        self.bios_card['body'].append(bios_box)
+        root.append(self.bios_card['card'])
 
-        # Hardware expander
+        # Hardware
         self.hw_details = self._make_text_area(220)
         self.hw_source = _txt('', 'xray-source')
         self.hw_full_btn = Gtk.Button(label='🔒 ' + i18n.t('xray.details_full'))
         self.hw_full_btn.add_css_class('btn-secondary')
+        self.hw_full_btn.add_css_class('xray-action')
         self.hw_full_btn.connect('clicked', lambda *_: self._fetch_priv_hw())
-        hw_box = _vbox(8)
-        hw_box.add_css_class('xray-topic')
+        hw_box = _vbox(10)
         hw_box.append(self.hw_source)
         hw_box.append(self.hw_details['scroll'])
         hw_box.append(self.hw_full_btn)
-        self.exp_hw = Gtk.Expander(label='⚙️ ' + i18n.t('xray.hardware'))
-        self.exp_hw.set_child(hw_box)
-        self.exp_hw.connect('notify::expanded', self._on_expand_hw)
-        root.append(self.exp_hw)
+        self.hw_card = self._make_card(
+            '⚙️', i18n.t('xray.hardware'), i18n.t('xray.hardware.subtitle'),
+            variant='purple', on_open=self._load_hw_details)
+        self.hw_card['body'].append(hw_box)
+        root.append(self.hw_card['card'])
 
-        # Programs expander
-        self.prog_box = _vbox(8)
-        self.prog_box.add_css_class('xray-topic')
+        # Programas
+        self.prog_box = _vbox(10)
         self.prog_note = _txt('', 'xray-source', wrap=True)
         self.prog_box.append(self.prog_note)
         self.prog_sections = {}
-        for key, title_key in (
-            ('apt', 'xray.programs.apt'),
-            ('snap', 'xray.programs.snap'),
-            ('flatpak_apps', 'xray.programs.flatpak'),
+        for key, title_key, icon, variant in (
+            ('apt', 'xray.programs.apt', '📦', 'blue'),
+            ('snap', 'xray.programs.snap', '🟠', 'orange'),
+            ('flatpak_apps', 'xray.programs.flatpak', '🫐', 'teal'),
         ):
-            sec = self._make_prog_section(key, i18n.t(title_key))
+            sec = self._make_prog_section(key, i18n.t(title_key), icon, variant)
             self.prog_sections[key] = sec
-            self.prog_box.append(sec['expander'])
-        self.exp_prog = Gtk.Expander(label='📦 ' + i18n.t('xray.programs'))
-        self.exp_prog.set_child(self.prog_box)
-        self.exp_prog.connect('notify::expanded', self._on_expand_prog)
-        root.append(self.exp_prog)
+            self.prog_box.append(sec['card']['card'])
+        self.prog_card = self._make_card(
+            '📦', i18n.t('xray.programs'), i18n.t('xray.programs.subtitle'),
+            variant='green', on_open=self._load_programs)
+        self.prog_card['body'].append(self.prog_box)
+        root.append(self.prog_card['card'])
 
         sep = Gtk.Separator()
         sep.set_margin_top(6)
@@ -1273,6 +1287,8 @@ class XRayDialog(Gtk.Window):
         view.set_right_margin(8)
         view.set_top_margin(8)
         view.set_bottom_margin(8)
+        view.set_pixels_above_lines(2)
+        view.set_pixels_below_lines(2)
         view.add_css_class('xray-detail')
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -1280,30 +1296,116 @@ class XRayDialog(Gtk.Window):
         scroll.set_child(view)
         return {'view': view, 'scroll': scroll, 'buffer': view.get_buffer()}
 
+    def _make_chip(self, icon, variant='blue', small=False):
+        chip = Gtk.Label(label=icon)
+        chip.add_css_class('xray-chip')
+        chip.add_css_class('xray-chip-' + variant)
+        if small:
+            chip.add_css_class('xray-chip-sm')
+        chip.set_valign(Gtk.Align.CENTER)
+        return chip
+
+    def _make_summary_row(self, parent, icon, label_key, variant):
+        row = _hbox(10)
+        row.add_css_class('xray-summary-row')
+        row.append(self._make_chip(icon, variant, small=True))
+        text_box = _vbox(1)
+        text_box.set_hexpand(True)
+        text_box.append(_txt(i18n.t(label_key), 'xray-summary-label'))
+        value = _txt('—', 'xray-summary-value', wrap=True)
+        text_box.append(value)
+        row.append(text_box)
+        parent.append(row)
+        return value
+
+    def _make_card(self, icon, title, subtitle='', badge='', variant='blue',
+                   compact=False, on_open=None):
+        card = _vbox(0)
+        card.add_css_class('xray-card')
+        if compact:
+            card.add_css_class('xray-subcard')
+
+        header = Gtk.Button()
+        header.set_has_frame(False)
+        header.add_css_class('xray-card-header')
+        row = _hbox(10)
+        row.set_valign(Gtk.Align.CENTER)
+        row.append(self._make_chip(icon, variant, small=compact))
+
+        text_box = _vbox(1)
+        text_box.set_hexpand(True)
+        text_box.append(_txt(title, 'xray-card-title'))
+        subtitle_lbl = _txt(subtitle, 'xray-card-sub', wrap=True)
+        subtitle_lbl.set_visible(bool(subtitle))
+        text_box.append(subtitle_lbl)
+        row.append(text_box)
+
+        badge_lbl = _txt(badge, 'xray-badge')
+        badge_lbl.add_css_class('xray-badge-' + variant)
+        badge_lbl.set_visible(bool(badge))
+        row.append(badge_lbl)
+
+        chevron = _txt('▸', 'xray-chevron')
+        row.append(chevron)
+        header.set_child(row)
+
+        body = _vbox(10)
+        body.add_css_class('xray-card-body')
+
+        revealer = Gtk.Revealer()
+        revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        revealer.set_transition_duration(180)
+        revealer.set_reveal_child(False)
+        revealer.set_child(body)
+
+        card.append(header)
+        card.append(revealer)
+
+        data = {
+            'card': card, 'header': header, 'body': body, 'revealer': revealer,
+            'chevron': chevron, 'badge': badge_lbl, 'subtitle': subtitle_lbl,
+            'expanded': False, 'on_open': on_open,
+        }
+        header.connect('clicked', lambda *_: self._toggle_card(data))
+        return data
+
+    def _toggle_card(self, card, expand=None):
+        if expand is None:
+            expand = not card['expanded']
+        card['expanded'] = expand
+        card['revealer'].set_reveal_child(expand)
+        card['chevron'].set_text('▾' if expand else '▸')
+        if expand and card.get('on_open'):
+            card['on_open']()
+
     def _set_text_area(self, area, text):
         area['buffer'].set_text(text or '')
+
+    def _set_status(self, text):
+        self.status.set_text(text or '')
+        self.status.set_visible(bool(text))
 
     def _get_text_area(self, area):
         buf = area['buffer']
         return buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
 
-    def _make_prog_section(self, key, title):
-        exp = Gtk.Expander(label=title)
-        box = _vbox(6)
-        count_lbl = _txt('', 'muted')
+    def _make_prog_section(self, key, title, icon='📦', variant='blue'):
+        card = self._make_card(
+            icon, title, badge='', variant=variant, compact=True,
+            on_open=lambda: self._update_prog_list(key))
+        box = card['body']
         search = Gtk.SearchEntry()
         search.set_placeholder_text(i18n.t('xray.search'))
+        search.add_css_class('xray-search')
         showing = _txt('', 'muted')
         area = self._make_text_area(160)
-        box.append(count_lbl)
         box.append(search)
         box.append(showing)
         box.append(area['scroll'])
-        exp.set_child(box)
         search.connect('search-changed', lambda *_: self._update_prog_list(key))
         return {
-            'expander': exp, 'box': box, 'count': count_lbl,
-            'search': search, 'showing': showing, 'area': area,
+            'card': card, 'box': box, 'search': search,
+            'showing': showing, 'area': area,
         }
 
     def _set_collecting(self, busy):
@@ -1312,9 +1414,9 @@ class XRayDialog(Gtk.Window):
         self.bios_full_btn.set_sensitive(not busy)
         self.hw_full_btn.set_sensitive(not busy)
         if busy:
-            self.status.set_text(i18n.t('xray.collecting'))
+            self._set_status(i18n.t('xray.collecting'))
         else:
-            self.status.set_text('')
+            self._set_status('')
 
     def _collect(self):
         if self._collecting:
@@ -1347,6 +1449,9 @@ class XRayDialog(Gtk.Window):
         self._prog_lists['apt'] = prog.get('apt') or []
         self._prog_lists['snap'] = prog.get('snap') or []
         self._prog_lists['flatpak_apps'] = prog.get('flatpak_apps') or []
+        total_progs = sum(len(v) for v in self._prog_lists.values())
+        self.prog_card['badge'].set_text(str(total_progs))
+        self.prog_card['badge'].set_visible(bool(total_progs))
         # update details if not replaced by privileged
         if not self._priv_bios:
             self._bios_detail_text = bios.get('details') or i18n.t('xray.unavailable')
@@ -1364,28 +1469,31 @@ class XRayDialog(Gtk.Window):
         self._set_collecting(False)
         return GLib.SOURCE_REMOVE
 
-    def _on_expand_bios(self, exp, _p):
-        if exp.get_expanded() and self._snapshot and not self._priv_bios:
+    def _load_bios_details(self):
+        if self._snapshot and not self._priv_bios:
             bios = self._snapshot.get('bios', {})
             if not self._get_text_area(self.bios_details):
-                self._set_text_area(self.bios_details, bios.get('details') or i18n.t('xray.unavailable'))
+                self._set_text_area(
+                    self.bios_details,
+                    bios.get('details') or i18n.t('xray.unavailable'))
 
-    def _on_expand_hw(self, exp, _p):
-        if exp.get_expanded() and self._snapshot and not self._priv_hw:
+    def _load_hw_details(self):
+        if self._snapshot and not self._priv_hw:
             hw = self._snapshot.get('hardware', {})
             if not self._get_text_area(self.hw_details):
-                self._set_text_area(self.hw_details, hw.get('details') or i18n.t('xray.unavailable'))
+                self._set_text_area(
+                    self.hw_details,
+                    hw.get('details') or i18n.t('xray.unavailable'))
 
-    def _on_expand_prog(self, exp, _p):
-        if exp.get_expanded():
-            for key in self.prog_sections:
-                self._update_prog_list(key)
+    def _load_programs(self):
+        for key in self.prog_sections:
+            self._update_prog_list(key)
 
     def _fetch_priv_bios(self):
         if self._collecting:
             return
         self.bios_full_btn.set_sensitive(False)
-        self.status.set_text(i18n.t('xray.collecting'))
+        self._set_status(i18n.t('xray.collecting'))
         threading.Thread(target=self._priv_bios_work, daemon=True,
                          name='cleanix-xray-bios').start()
 
@@ -1398,7 +1506,7 @@ class XRayDialog(Gtk.Window):
 
     def _apply_priv_bios(self, res):
         self.bios_full_btn.set_sensitive(True)
-        self.status.set_text('')
+        self._set_status('')
         if res.get('ok'):
             self._priv_bios = True
             self._bios_detail_text = res.get('details') or i18n.t('xray.unavailable')
@@ -1409,14 +1517,14 @@ class XRayDialog(Gtk.Window):
             err = res.get('error') or i18n.t('xray.unavailable')
             self.bios_source.set_text(i18n.t('xray.source_unprivileged'))
             # keep unprivileged details, show error in status
-            self.status.set_text(err)
+            self._set_status(err)
         return GLib.SOURCE_REMOVE
 
     def _fetch_priv_hw(self):
         if self._collecting:
             return
         self.hw_full_btn.set_sensitive(False)
-        self.status.set_text(i18n.t('xray.collecting'))
+        self._set_status(i18n.t('xray.collecting'))
         threading.Thread(target=self._priv_hw_work, daemon=True,
                          name='cleanix-xray-hw').start()
 
@@ -1429,7 +1537,7 @@ class XRayDialog(Gtk.Window):
 
     def _apply_priv_hw(self, res):
         self.hw_full_btn.set_sensitive(True)
-        self.status.set_text('')
+        self._set_status('')
         if res.get('ok'):
             self._priv_hw = True
             self._hw_detail_text = res.get('details') or i18n.t('xray.unavailable')
@@ -1439,7 +1547,7 @@ class XRayDialog(Gtk.Window):
         else:
             err = res.get('error') or i18n.t('xray.unavailable')
             self.hw_source.set_text(i18n.t('xray.source_unprivileged'))
-            self.status.set_text(err)
+            self._set_status(err)
         return GLib.SOURCE_REMOVE
 
     def _update_prog_list(self, key):
@@ -1452,7 +1560,9 @@ class XRayDialog(Gtk.Window):
             filtered = [(n, v) for (n, v) in items if q in n.lower() or q in (v or '').lower()]
         else:
             filtered = list(items)
-        sec['count'].set_text(f"{len(items)}")
+        badge = sec['card']['badge']
+        badge.set_text(str(len(items)))
+        badge.set_visible(bool(items))
         total = len(filtered)
         show = filtered[: self.PROGRAM_RENDER_LIMIT]
         if show:

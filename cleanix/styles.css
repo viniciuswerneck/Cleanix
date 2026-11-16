@@ -211,47 +211,187 @@ window {
 }
 .smart-dialog .xray-detail {
     font-size: 14px;
+    color: #DCD9EA;
 }
+
+/* ---------- Raio-X: cabeçalho em destaque ---------- */
+.smart-dialog .xray-hero {
+    background-image: linear-gradient(135deg, #2C2A44 0%, #211F2B 100%);
+    border: 1px solid #3A3850;
+    border-radius: 16px;
+}
+.smart-dialog .xray-hero-icon {
+    font-size: 40px;
+    padding: 2px 4px;
+}
+
+/* ---------- Raio-X: cartão de resumo ---------- */
 .smart-dialog .xray-summary-card {
-    background-color: #2B2938;
-    border: 1px solid #393746;
-    border-radius: 12px;
-    padding: 12px 14px;
+    background-color: #232130;
+    border: 1px solid #343243;
+    border-radius: 14px;
+    padding: 14px 16px;
 }
-.smart-dialog .xray-summary-line {
+.smart-dialog .xray-summary-row {
+    padding: 8px 0;
+}
+.smart-dialog .xray-summary-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #8F8CA3;
+}
+.smart-dialog .xray-summary-value {
     font-size: 14px;
     color: #E6E5F0;
 }
-.smart-dialog .xray-topic {
-    background-color: #2B2938;
-    border: 1px solid #393746;
-    border-radius: 12px;
-    padding: 10px 12px;
-    margin-top: 4px;
+
+/* ---------- Raio-X: chips de ícone ---------- */
+.smart-dialog .xray-chip {
+    font-size: 18px;
+    border-radius: 10px;
+    padding: 5px 7px;
+    background-color: #2F2C42;
 }
-.smart-dialog expander > title {
-    padding: 6px 4px;
-}
-.smart-dialog expander > title label {
+.smart-dialog .xray-chip-sm {
     font-size: 15px;
+    padding: 3px 5px;
+}
+.smart-dialog .xray-chip-blue {
+    background-color: #223247;
+}
+.smart-dialog .xray-chip-purple {
+    background-color: #2E2846;
+}
+.smart-dialog .xray-chip-green {
+    background-color: #1F3A2C;
+}
+.smart-dialog .xray-chip-orange {
+    background-color: #3D2E1E;
+}
+.smart-dialog .xray-chip-teal {
+    background-color: #1B3736;
+}
+
+/* ---------- Raio-X: cartões expansíveis ---------- */
+.smart-dialog .xray-card {
+    background-color: #232130;
+    border: 1px solid #343243;
+    border-radius: 14px;
+}
+.smart-dialog .xray-card-header {
+    background-image: none;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 12px 14px;
+    border-radius: 14px;
+}
+.smart-dialog .xray-card-header:hover {
+    background-color: #2B2938;
+}
+.smart-dialog .xray-card-title {
+    font-size: 16px;
     font-weight: 700;
     color: #F4F3FA;
 }
-.smart-dialog textview {
-    background-color: #1E1C27;
-    border-radius: 8px;
-    padding: 2px;
+.smart-dialog .xray-card-sub {
+    font-size: 12px;
+    color: #9B98AE;
 }
-.smart-dialog textview text {
-    background-color: #1E1C27;
-    color: #DCD9EA;
+.smart-dialog .xray-card-body {
+    padding: 0 14px 14px 14px;
 }
-.smart-dialog scrolledwindow {
-    border-radius: 8px;
+.smart-dialog .xray-chevron {
+    font-size: 18px;
+    color: #B9B7C7;
+    padding: 0 2px;
+}
+
+/* sub-cartões (APT/Snap/Flatpak) */
+.smart-dialog .xray-subcard {
+    background-color: #1E1C27;
+    border-color: #302E3E;
+}
+.smart-dialog .xray-subcard .xray-card-header {
+    padding: 10px 12px;
+}
+.smart-dialog .xray-subcard .xray-card-title {
+    font-size: 14px;
+}
+.smart-dialog .xray-subcard .xray-card-body {
+    padding: 0 12px 12px 12px;
+}
+
+/* ---------- Raio-X: badges de contagem ---------- */
+.smart-dialog .xray-badge {
+    font-size: 11px;
+    font-weight: 700;
+    color: #FFFFFF;
+    background-color: #3295F5;
+    border-radius: 9px;
+    padding: 2px 8px;
+}
+.smart-dialog .xray-badge-blue {
+    background-color: #3295F5;
+}
+.smart-dialog .xray-badge-orange {
+    background-color: #E7861B;
+}
+.smart-dialog .xray-badge-teal {
+    background-color: #1FA6A0;
+}
+.smart-dialog .xray-badge-green {
+    background-color: #25CE60;
+}
+
+/* ---------- Raio-X: busca, textos e botões ---------- */
+.smart-dialog .xray-search {
+    border-radius: 9px;
 }
 .smart-dialog .xray-source {
     font-size: 12px;
-    color: #3295F5;
+    color: #78B7F8;
+}
+.smart-dialog .xray-action {
+    padding: 7px 12px;
+}
+.smart-dialog .xray-refresh {
+    background-color: #2F2C42;
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-weight: 700;
+    color: #E6E5F0;
+}
+.smart-dialog .xray-refresh:hover {
+    background-color: #3A3752;
+    color: #FFFFFF;
+}
+.smart-dialog scrollbar {
+    background: none;
+}
+.smart-dialog scrollbar slider {
+    background-color: #3A3850;
+    border-radius: 6px;
+    min-width: 8px;
+    min-height: 24px;
+}
+.smart-dialog scrollbar slider:hover {
+    background-color: #4A4763;
+}
+.smart-dialog .xray-detail text {
+    color: #DCD9EA;
+}
+.smart-dialog .xray-card-body textview,
+.smart-dialog .xray-card-body textview text {
+    font-size: 14px;
+}
+.smart-dialog .xray-card-body textview {
+    background-color: #17161F;
+    border-radius: 9px;
+}
+.smart-dialog .xray-card-body textview text {
+    background-color: #17161F;
+    color: #DCD9EA;
 }
 
 /* ---------- Buttons ---------- */
