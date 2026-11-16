@@ -224,6 +224,7 @@
   "xray.export_error_title": "Could not generate the report",
   "xray.export_filename": "machine-xray.html",
   "xray.export_html": "Generate HTML",
+  "xray.export_opened": "The report was opened in your default browser.",
   "xray.export_title": "Save X-Ray report",
   "xray.hardware": "Hardware",
   "xray.hardware.subtitle": "CPU, memory, disks and devices",

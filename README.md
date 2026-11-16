@@ -28,7 +28,8 @@ do sistema.
   de detalhes completos via administrador), programas separados por APT, Snap
   e Flatpak (com busca) e **exportação de relatório completo em HTML** — com
   senha única para incluir também os detalhes completos de BIOS e hardware,
-  tabelas pesquisáveis e layout pronto para impressão/PDF.
+  tabelas pesquisáveis, layout pronto para impressão/PDF e abertura automática
+  no navegador após salvar.
 - Painel de memória RAM na tela inicial, com uso e capacidade total,
   disponível, cache e gráfico ao vivo, além de um atalho para liberar o cache.
 - Varredura segura de cinco categorias:

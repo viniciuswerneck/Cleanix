@@ -224,6 +224,7 @@
   "xray.export_error_title": "No se pudo generar el informe",
   "xray.export_filename": "radiografia-maquina.html",
   "xray.export_html": "Generar HTML",
+  "xray.export_opened": "El informe se abrió en el navegador predeterminado.",
   "xray.export_title": "Guardar informe de radiografía",
   "xray.hardware": "Hardware",
   "xray.hardware.subtitle": "CPU, memoria, discos y dispositivos",

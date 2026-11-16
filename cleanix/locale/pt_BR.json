@@ -224,6 +224,7 @@
   "xray.export_error_title": "Não foi possível gerar o relatório",
   "xray.export_filename": "raio-x-maquina.html",
   "xray.export_html": "Gerar HTML",
+  "xray.export_opened": "O relatório foi aberto no navegador padrão.",
   "xray.export_title": "Salvar relatório do Raio-X",
   "xray.hardware": "Hardware",
   "xray.hardware.subtitle": "CPU, memória, discos e dispositivos",

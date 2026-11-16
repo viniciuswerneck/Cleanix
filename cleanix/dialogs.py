@@ -9,7 +9,7 @@ import gi
 
 gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
-from gi.repository import Gdk, GLib, Gtk, Pango
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import (adjustments, autostart, history, i18n, memory, settings,
                systeminfo, xray)
@@ -1636,7 +1636,10 @@ class XRayDialog(Gtk.Window):
         try:
             html = self._build_export_html(priv_error)
             Path(path).write_text(html, encoding='utf-8')
+            opened = self._open_report(path)
             body = i18n.t('xray.export_done_body', path=str(path))
+            if opened:
+                body += '\n\n' + i18n.t('xray.export_opened')
             if priv_error:
                 body += '\n\n' + i18n.t(
                     'xray.html.priv_missing_body', detail=priv_error)
@@ -1645,6 +1648,14 @@ class XRayDialog(Gtk.Window):
             show_info(self, i18n.t('xray.export_error_title'),
                       i18n.t('xray.export_error_body', detail=str(exc)))
         return GLib.SOURCE_REMOVE
+
+    def _open_report(self, path):
+        try:
+            uri = Gio.File.new_for_path(str(path)).get_uri()
+            return bool(Gio.AppInfo.launch_default_for_uri(uri, None))
+        except Exception as exc:
+            log.warning('Não foi possível abrir o relatório %s: %s', path, exc)
+            return False
 
     def _build_export_html(self, priv_error=''):
         snap = self._snapshot or {}
