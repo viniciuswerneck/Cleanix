@@ -302,8 +302,9 @@ class _ActionDialog(Gtk.Window):
         card.append(spacer)
 
         button = Gtk.Button(label=i18n.t(action['label_key']))
-        button.add_css_class('btn-green')
-        button.set_halign(Gtk.Align.START)
+        button.add_css_class('btn-secondary')
+        button.set_halign(Gtk.Align.FILL)
+        button.set_hexpand(True)
         if action.get('dialog') is not None:
             button.connect('clicked', lambda *_: action['dialog'](self))
         else:
