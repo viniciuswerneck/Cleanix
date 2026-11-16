@@ -23,13 +23,18 @@ do sistema.
   (avaliação PASSOU/FALHOU/indisponível e atributos importantes), com senha de
   administrador quando necessário. Se o `smartmontools` não estiver instalado,
   o app orienta e oferece instalação com um clique (ou uso do app Discos).
-- **Raio-X da máquina**: resumo rápido por tópicos (BIOS/sistema, hardware e
-  programas instalados) com detalhes expansíveis, coleta sob demanda (com opção
-  de detalhes completos via administrador), programas separados por APT, Snap
-  e Flatpak (com busca) e **exportação de relatório completo em HTML** — com
-  senha única para incluir também os detalhes completos de BIOS e hardware,
-  tabelas pesquisáveis, layout pronto para impressão/PDF e abertura automática
-  no navegador após salvar.
+- **Raio-X da máquina**: resumo rápido por tópicos (BIOS/sistema, hardware,
+  rede, sistema, discos e programas) com detalhes expansíveis, destaques
+  automáticos (BIOS antiga, partição quase cheia, runtimes Flatpak e
+  atualizações pendentes), coleta sob demanda e detalhes completos via
+  administrador. Programas separados por APT, Snap e Flatpak, com tamanhos,
+  busca única e “Mostrar todos”. Inclui copiar detalhes, expandir/recolher
+  tudo, indicador de atividade, “Atualizado às” e `Esc` para fechar.
+- **Relatório HTML completo**: senha única para incluir os detalhes de BIOS e
+  hardware, opção de ocultar números de série, UUIDs e MACs (ligada por
+  padrão), tabelas pesquisáveis e ordenáveis, tema claro/escuro, imprimir/PDF,
+  voltar ao topo, versão do Cleanix no rodapé e abertura automática no
+  navegador após salvar.
 - Painel de memória RAM na tela inicial, com uso e capacidade total,
   disponível, cache e gráfico ao vivo, além de um atalho para liberar o cache.
 - Varredura segura de cinco categorias:

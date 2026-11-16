@@ -1,6 +1,6 @@
 # Melhorias do Raio-X — Plano de Implementação
 
-> **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:executing-plans (native) or superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
+> **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:executing-plans (native) or superpowers:subagent-driven-development. Steps use checkbox (`- [x]`) syntax.
 
 **Goal:** Tornar o Raio-X e seu relatório HTML mais seguros, completos, traduzidos e úteis, incluindo privacidade de identificadores, tamanhos de programas, rede, sistema, discos, alertas e ações no relatório.
 
@@ -36,7 +36,7 @@
 **Interfaces:**
 - Produces: `redact_sensitive(text: str) -> str`; `xray.field.*`/`xray.section.*` keys.
 
-- [ ] **Step 1: Escrever testes que falham**
+- [x] **Step 1: Escrever testes que falham**
 
 ```python
 def test_redact_sensitive_masks_identifiers():
@@ -56,10 +56,10 @@ def test_bios_details_follow_language():
     self.assertIn('Vendor', text)
 ```
 
-- [ ] **Step 2: Rodar e ver falhar** — `python3 -m unittest tests.test_xray -v`
-- [ ] **Step 3: Implementar** — adicionar `i18n` nas mensagens; chaves `xray.section.*`, `xray.field.*`, `xray.error.*`; `redact_sensitive` com regex por linha (`serial number|uuid|sku|asset tag|^\s*serial\s*:`), preservando o rótulo e trocando o valor por `[oculto]`.
-- [ ] **Step 4: Rodar** — testes passam; `tools/check_language.py` OK.
-- [ ] **Step 5: Commit** — `feat: traduz detalhes do Raio-X e mascara identificadores`.
+- [x] **Step 2: Rodar e ver falhar** — `python3 -m unittest tests.test_xray -v`
+- [x] **Step 3: Implementar** — adicionar `i18n` nas mensagens; chaves `xray.section.*`, `xray.field.*`, `xray.error.*`; `redact_sensitive` com regex por linha (`serial number|uuid|sku|asset tag|^\s*serial\s*:`), preservando o rótulo e trocando o valor por `[oculto]`.
+- [x] **Step 4: Rodar** — testes passam; `tools/check_language.py` OK.
+- [x] **Step 5: Commit** — `feat: traduz detalhes do Raio-X e mascara identificadores`.
 
 ### Task 2: Programas com tamanho
 
@@ -71,11 +71,11 @@ def test_bios_details_follow_language():
 **Interfaces:**
 - Produces: listas `[(nome, versão, tamanho)]`; `xray.format_kb(kb: int) -> str`.
 
-- [ ] **Step 1: Testes** — dpkg com 4ª coluna `Installed-Size` vira tamanho legível; snap devolve terceiro item `''`; flatpak lê `size`.
-- [ ] **Step 2: Rodar e ver falhar.**
-- [ ] **Step 3: Implementar** — `dpkg-query -f '${Package}\t${Version}\t${db:Status-Status}\t${Installed-Size}\n'`; `flatpak list --app --columns=application,version,size`; normalizar tamanhos ausentes para `''`.
-- [ ] **Step 4: Ajustar diálogo e HTML** — exibir `nome — versão · tamanho`; coluna “Tamanho” no relatório; entradas antigas de 2 itens continuam aceitas.
-- [ ] **Step 5: Testes + commit** — `feat: mostra tamanho dos programas no Raio-X`.
+- [x] **Step 1: Testes** — dpkg com 4ª coluna `Installed-Size` vira tamanho legível; snap devolve terceiro item `''`; flatpak lê `size`.
+- [x] **Step 2: Rodar e ver falhar.**
+- [x] **Step 3: Implementar** — `dpkg-query -f '${Package}\t${Version}\t${db:Status-Status}\t${Installed-Size}\n'`; `flatpak list --app --columns=application,version,size`; normalizar tamanhos ausentes para `''`.
+- [x] **Step 4: Ajustar diálogo e HTML** — exibir `nome — versão · tamanho`; coluna “Tamanho” no relatório; entradas antigas de 2 itens continuam aceitas.
+- [x] **Step 5: Testes + commit** — `feat: mostra tamanho dos programas no Raio-X`.
 
 ### Task 3: Coletas novas (rede, sistema, discos, destaques)
 
@@ -91,11 +91,11 @@ def test_bios_details_follow_language():
   - `build_alerts(bios_date, disk_usages, flatpak_runtimes, pending_updates, now_year) -> list[dict]` com `level` (`warn`/`info`) e `text`
   - `collect_unprivileged()` passa a devolver `network`, `system`, `disks`, `alerts`.
 
-- [ ] **Step 1: Testes** — parser de `ip -brief addr`, parser de uptime, alertas determinísticos (BIOS 2015 → warn; disco 95% → warn; 22 runtimes → info; 0 updates → sem alerta).
-- [ ] **Step 2: Rodar e ver falhar.**
-- [ ] **Step 3: Implementar** — `/proc/uptime`, `/sys/class/net/*/address`, `ip -brief addr` (timeout curto), `apt list --upgradable` (timeout 20), Secure Boot em `/sys/firmware/efi/efivars/SecureBoot-*`, TPM em `/sys/class/tpm/tpm0`; discos via `systeminfo._scan_disks()`.
-- [ ] **Step 4: Rodar** — testes e harness de layout OK.
-- [ ] **Step 5: Commit** — `feat: adiciona rede, sistema, discos e destaques ao Raio-X`.
+- [x] **Step 1: Testes** — parser de `ip -brief addr`, parser de uptime, alertas determinísticos (BIOS 2015 → warn; disco 95% → warn; 22 runtimes → info; 0 updates → sem alerta).
+- [x] **Step 2: Rodar e ver falhar.**
+- [x] **Step 3: Implementar** — `/proc/uptime`, `/sys/class/net/*/address`, `ip -brief addr` (timeout curto), `apt list --upgradable` (timeout 20), Secure Boot em `/sys/firmware/efi/efivars/SecureBoot-*`, TPM em `/sys/class/tpm/tpm0`; discos via `systeminfo._scan_disks()`.
+- [x] **Step 4: Rodar** — testes e harness de layout OK.
+- [x] **Step 5: Commit** — `feat: adiciona rede, sistema, discos e destaques ao Raio-X`.
 
 ### Task 4: Relatório HTML v2
 
@@ -107,11 +107,11 @@ def test_bios_details_follow_language():
 - Consumes: snapshot com `network`, `system`, `disks`, `alerts`; `redact_sensitive`.
 - Produces: `build_report_html(snapshot, bios_details='', hw_details='', bios_source='', hw_source='', priv_error='', redact=True)`.
 
-- [ ] **Step 1: Testes** — HTML contém seções Rede/Sistema/Discos, cartão Destaques, botões Imprimir/Tema/Topo, versão do Cleanix; `redact=True` remove serial; `redact=False` mantém.
-- [ ] **Step 2: Rodar e ver falhar.**
-- [ ] **Step 3: Implementar** — tabela de discos, cartões novos, TOC ampliado, CSS escuro por `[data-theme="dark"]`, botões e JS (print, tema, topo, ordenação de tabelas e busca existente), rodapé com `cleanix.version`.
-- [ ] **Step 4: Gerar relatório e conferir no Chrome headless** (topo e fim; busca; tema).
-- [ ] **Step 5: Commit** — `feat: amplia e moderniza o relatório HTML do Raio-X`.
+- [x] **Step 1: Testes** — HTML contém seções Rede/Sistema/Discos, cartão Destaques, botões Imprimir/Tema/Topo, versão do Cleanix; `redact=True` remove serial; `redact=False` mantém.
+- [x] **Step 2: Rodar e ver falhar.**
+- [x] **Step 3: Implementar** — tabela de discos, cartões novos, TOC ampliado, CSS escuro por `[data-theme="dark"]`, botões e JS (print, tema, topo, ordenação de tabelas e busca existente), rodapé com `cleanix.version`.
+- [x] **Step 4: Gerar relatório e conferir no Chrome headless** (topo e fim; busca; tema).
+- [x] **Step 5: Commit** — `feat: amplia e moderniza o relatório HTML do Raio-X`.
 
 ### Task 5: Diálogo — cartões novos, busca única, ações e privacidade
 
@@ -125,17 +125,17 @@ def test_bios_details_follow_language():
 - Consumes: novos campos do snapshot; `xray.build_report_html(..., redact=...)`.
 - Produces: cartões Rede/Sistema; alertas no resumo; `self.global_search`; botões “Mostrar todos”; `self.redact_check`; `self.spinner`.
 
-- [ ] **Step 1: Implementar cartões Rede e Sistema** (textos, copiar, sem senha).
-- [ ] **Step 2: Resumo com destaques** — linha destacada quando houver alertas.
-- [ ] **Step 3: Programas** — busca global, “Mostrar todos” por origem, tamanhos.
-- [ ] **Step 4: UX** — spinner, “Atualizado às”, Atualizar no rodapé, Copiar, Expandir/Recolher tudo, `Esc`.
-- [ ] **Step 5: Exportação** — checkbox de privacidade (padrão ligado) passado ao HTML; manter abertura automática.
-- [ ] **Step 6: Smoke GTK** — abrir diálogo, expandir tudo, filtrar, exportar com coleta simulada e conferir HTML.
-- [ ] **Step 7: Commit** — `feat: melhora a experiência e a privacidade do Raio-X`.
+- [x] **Step 1: Implementar cartões Rede e Sistema** (textos, copiar, sem senha).
+- [x] **Step 2: Resumo com destaques** — linha destacada quando houver alertas.
+- [x] **Step 3: Programas** — busca global, “Mostrar todos” por origem, tamanhos.
+- [x] **Step 4: UX** — spinner, “Atualizado às”, Atualizar no rodapé, Copiar, Expandir/Recolher tudo, `Esc`.
+- [x] **Step 5: Exportação** — checkbox de privacidade (padrão ligado) passado ao HTML; manter abertura automática.
+- [x] **Step 6: Smoke GTK** — abrir diálogo, expandir tudo, filtrar, exportar com coleta simulada e conferir HTML.
+- [x] **Step 7: Commit** — `feat: melhora a experiência e a privacidade do Raio-X`.
 
 ### Task 6: Verificação final e documentação
 
-- [ ] **Step 1:** `python3 -m unittest discover -s tests -v` (esperado: todos OK).
-- [ ] **Step 2:** `tools/check_language.py` e `tools/check_layout.py` OK.
-- [ ] **Step 3:** Atualizar `README.md` (privacidade, rede/sistema/discos, tamanhos, ações do HTML).
-- [ ] **Step 4:** Commit `docs: documenta as melhorias do Raio-X` e `git push origin feat/funcionalidades-reais`.
+- [x] **Step 1:** `python3 -m unittest discover -s tests -v` (esperado: todos OK).
+- [x] **Step 2:** `tools/check_language.py` e `tools/check_layout.py` OK.
+- [x] **Step 3:** Atualizar `README.md` (privacidade, rede/sistema/discos, tamanhos, ações do HTML).
+- [x] **Step 4:** Commit `docs: documenta as melhorias do Raio-X` e `git push origin feat/funcionalidades-reais`.
