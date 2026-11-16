@@ -48,6 +48,20 @@ class LoadSettingsTest(unittest.TestCase):
             conf = settings.load_settings(path)
         self.assertEqual(conf, settings.Settings())
 
+    def test_invalid_language_falls_back_to_auto(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text(json.dumps({"language": "fr"}), encoding="utf-8")
+            conf = settings.load_settings(path)
+        self.assertEqual(conf.language, "")
+
+    def test_non_string_language_falls_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text(json.dumps({"language": 3}), encoding="utf-8")
+            conf = settings.load_settings(path)
+        self.assertEqual(conf.language, "")
+
 
 class SaveSettingsTest(unittest.TestCase):
     def test_round_trip(self):
@@ -58,6 +72,13 @@ class SaveSettingsTest(unittest.TestCase):
             settings.save_settings(original, path)
             self.assertTrue(path.exists())
             self.assertEqual(settings.load_settings(path), original)
+
+    def test_language_round_trip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sub" / "config.json"
+            original = settings.Settings(language="en")
+            settings.save_settings(original, path)
+            self.assertEqual(settings.load_settings(path).language, "en")
 
     def test_config_path_respects_xdg_config_home(self):
         with tempfile.TemporaryDirectory() as tmp:

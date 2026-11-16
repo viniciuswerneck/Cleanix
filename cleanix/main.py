@@ -12,6 +12,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk
 
+from . import i18n, settings
 from .cleanixwindow import CleanixWindow
 
 
@@ -34,6 +35,8 @@ def _setup_logging():
 
 def main():
     _setup_logging()
+    config = settings.load_settings()
+    i18n.set_language(config.language or i18n.detect_language())
     app = Gtk.Application(application_id='br.cleanix.Cleanix')
 
     def on_activate():

@@ -7,11 +7,14 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from . import i18n
+
 
 @dataclass(frozen=True)
 class Settings:
     confirm_before_clean: bool = True
     keep_history: bool = True
+    language: str = ""
 
 
 def config_path() -> Path:
@@ -34,7 +37,17 @@ def load_settings(path: Path | None = None) -> Settings:
     values = {}
     for field, default in asdict(Settings()).items():
         value = data.get(field, default)
-        values[field] = value if isinstance(value, bool) else default
+        if isinstance(default, bool):
+            values[field] = value if isinstance(value, bool) else default
+        elif isinstance(default, str):
+            if not isinstance(value, str):
+                values[field] = default
+            elif field == "language" and value not in ("", *i18n.LANGUAGES):
+                values[field] = ""
+            else:
+                values[field] = value
+        else:
+            values[field] = default
     return Settings(**values)
 
 
