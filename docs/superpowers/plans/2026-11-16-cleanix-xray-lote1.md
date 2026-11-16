@@ -1,6 +1,6 @@
 # Raio-X lote 1 — JSON, CSV e resumo para suporte
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (native) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (native) to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Permitir exportar o inventário do Raio-X em JSON e CSV e copiar um resumo curto para suporte, respeitando a opção de ocultar identificadores.
 
@@ -36,7 +36,7 @@
 **Interfaces:**
 - Produces: `redact_network_macs(text: str) -> str`; `build_support_summary(snapshot, bios_details='', hw_details='', bios_source='', hw_source='', priv_error='', redact=True) -> str`
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 Em `tests/test_xray.py` adicionar:
 ```python
@@ -79,23 +79,23 @@ class SupportSummaryTest(unittest.TestCase):
         self.assertTrue(isinstance(text, str) and text)
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [x] **Step 2: Rodar para ver falhar**
 
 Run: `python3 -m unittest tests.test_xray.SupportSummaryTest -v`
 Expected: FAIL (funções ausentes)
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 Em `cleanix/xray.py`: extrair/definir `redact_network_macs(text: str) -> str` (regex `(?im)^(\s*MAC:\s*).*$` -> label + `i18n.t('xray.redacted')`) e usar no HTML. Implementar `build_support_summary(...)` montando linhas: cabeçalho com versão (`cleanix.version`/`__version__` disponível via `from . import __init__ as pkg` ou `import cleanix; cleanix.version` — usar o mesmo padrão do HTML: `cleanix_version` importado no módulo) e data/hora, SO/produto, bios/hardware summaries, discos (nome, %, montagem), rede summary + interfaces/endereços sem MAC quando redacted (ou com MAC redigido), sistema summary, contagens APT/Snap/Flatpak+runtimes, alertas (ou “nenhum”), limitações; aplicar `redact_sensitive` aos detalhes de bios/hw quando fornecidos para compor eventuais notas e sempre mascarar MACs em qualquer texto de rede incluído.
 
 Adicionar chaves de resumo se necessário (`xray.summary.none_alerts`, `xray.summary.title` ou reaproveitar existentes) nos 3 locales.
 
-- [ ] **Step 4: Rodar testes**
+- [x] **Step 4: Rodar testes**
 
 Run: `python3 -m unittest tests.test_xray.SupportSummaryTest tests.test_xray.ReportHtmlV2Test -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cleanix/xray.py cleanix/locale tests/test_xray.py
@@ -111,7 +111,7 @@ git commit -m "feat: adiciona resumo do Raio-X para suporte"
 **Interfaces:**
 - Produces: `build_report_json(snapshot, bios_details='', hw_details='', bios_source='', hw_source='', priv_error='', redact=True) -> str`
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 ```python
 import json
@@ -155,21 +155,21 @@ class ReportJsonTest(unittest.TestCase):
         self.assertFalse(data['meta']['redacted'])
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [x] **Step 2: Rodar para ver falhar**
 
 Run: `python3 -m unittest tests.test_xray.ReportJsonTest -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 Em `cleanix/xray.py`: `build_report_json` retorna `json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)` com meta (`generated`, `cleanix_version`, `os`, `product`, `redacted`, `priv_error`), seções bios/hardware/network/system/disks/alerts/programs/limitations; programas como objetos `{name,version,size}` (tolerar tuplas de 2); aplicar redação a bios/hw details e MACs em network details quando `redact=True`.
 
-- [ ] **Step 4: Rodar testes**
+- [x] **Step 4: Rodar testes**
 
 Run: `python3 -m unittest tests.test_xray.ReportJsonTest -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cleanix/xray.py tests/test_xray.py
@@ -185,7 +185,7 @@ git commit -m "feat: exporta inventário do Raio-X em JSON"
 **Interfaces:**
 - Produces: `build_report_csv(snapshot, bios_details='', hw_details='', bios_source='', hw_source='', priv_error='', redact=True) -> str`
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [x] **Step 1: Escrever os testes que falham**
 
 ```python
 import csv, io
@@ -227,21 +227,21 @@ class ReportCsvTest(unittest.TestCase):
         self.assertNotIn('SEC', text)
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [x] **Step 2: Rodar para ver falhar**
 
 Run: `python3 -m unittest tests.test_xray.ReportCsvTest -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 Em `cleanix/xray.py`: `build_report_csv` gera via `csv.writer` em `io.StringIO` com cabeçalho fixo `section,origin,name,version,size,type,total,used,pct,mount,level,text`. Linhas: `program` para cada item de apt/snap/flatpak_apps (origin `apt|snap|flatpak`); `disk` para cada disco (campos total/used como bytes ou texto legível — usar `systeminfo.format_bytes` quando houver valor, para consistência com HTML); `alert` para cada destaque. Não incluir detalhes brutos de BIOS/hardware/rede com identificadores; se precisar incluir nota de privacidade, usar seção `meta` apenas com campos seguros (sem MAC/serial). Aplicar redação a qualquer texto derivado de bios/hw/network incluído.
 
-- [ ] **Step 4: Rodar testes**
+- [x] **Step 4: Rodar testes**
 
 Run: `python3 -m unittest tests.test_xray.ReportCsvTest -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cleanix/xray.py tests/test_xray.py
@@ -260,26 +260,26 @@ git commit -m "feat: exporta inventário do Raio-X em CSV"
 - Consumes: `xray.build_report_json`, `xray.build_report_csv`, `xray.build_support_summary`
 - Produces: UI com “Copiar resumo”, “Exportar JSON”, “Exportar CSV”; exportação generalizada respeitando `redact_check`.
 
-- [ ] **Step 1: Adicionar chaves i18n**
+- [x] **Step 1: Adicionar chaves i18n**
 
 Nos 3 arquivos de locale adicionar (valores equivalentes): `xray.copy_summary` (Copiar resumo), `xray.summary_copied` (Resumo copiado.), `xray.export_json` (Exportar JSON), `xray.export_csv` (Exportar CSV), `xray.export_json_title`, `xray.export_csv_title`, `xray.export_json_filename` (`cleanix-raiox.json` base — nome final pode incluir data, mas manter chave), `xray.export_csv_filename`, `xray.export_json_done_body`/`csv` ou reutilizar mensagens genéricas. Manter paridade de chaves.
 
-- [ ] **Step 2: Implementar UI e exportação no diálogo**
+- [x] **Step 2: Implementar UI e exportação no diálogo**
 
 Em `XRayDialog`: adicionar botão “Copiar resumo” (`_make_copy_button`/ação dedicada) que chama `xray.build_support_summary(...)` com textos atuais e `redact=self.redact_check.get_active()` e copia para clipboard com status “Resumo copiado.”. Adicionar botões “Exportar JSON” e “Exportar CSV”. Refatorar exportação para aceitar `kind in ('html','json','csv')`: nomes/títulos/geradores por tipo; JSON/CSV usam `self._open_report` apenas se fizer sentido (pode abrir pasta não é trivial com FileDialog — manter comportamento de mostrar caminho no diálogo de sucesso, sem abrir navegador; HTML continua abrindo). Reutilizar `_write_export/_export_work/_finish_export` garantindo que coleta privilegiada ocorra uma vez quando necessário e que `redact_check` seja passado aos builders.
 
-- [ ] **Step 3: Atualizar README**
+- [x] **Step 3: Atualizar README**
 
 Acrescentar na descrição do Raio-X/relatório que também é possível exportar JSON e CSV e copiar um resumo para suporte, sempre respeitando a ocultação de identificadores.
 
-- [ ] **Step 4: Verificação**
+- [x] **Step 4: Verificação**
 
 Run: `python3 -m unittest discover -s tests -v` (todos OK)
 Run: `python3 tools/check_language.py` (OK)
 Run: `python3 tools/check_layout.py` (OK)
 Smoke rápido opcional: instanciar builders com snapshot real (`xray.collect_unprivileged()`) e conferir que JSON/CSV/summary geram e não contêm MAC/serial quando `redact=True`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cleanix/dialogs.py cleanix/locale README.md
@@ -288,6 +288,6 @@ git commit -m "feat: adiciona exportação JSON/CSV e resumo para suporte no Rai
 
 ### Task 5: Fechamento do lote 1
 
-- [ ] **Step 1:** `python3 -m unittest discover -s tests -v` — esperado: todos OK.
-- [ ] **Step 2:** Atualizar `docs/superpowers/plans/2026-11-16-cleanix-xray-lote1.md` marcando passos concluídos.
-- [ ] **Step 3:** Commit `docs: registra conclusão do lote 1 do Raio-X` e `git push origin feat/funcionalidades-reais`.
+- [x] **Step 1:** `python3 -m unittest discover -s tests -v` — esperado: todos OK.
+- [x] **Step 2:** Atualizar `docs/superpowers/plans/2026-11-16-cleanix-xray-lote1.md` marcando passos concluídos.
+- [x] **Step 3:** Commit `docs: registra conclusão do lote 1 do Raio-X` e `git push origin feat/funcionalidades-reais`.
