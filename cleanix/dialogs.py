@@ -956,8 +956,9 @@ class SmartHealthDialog(Gtk.Window):
         self.set_title(i18n.t('smart.title'))
         self.set_modal(True)
         self.set_transient_for(parent)
-        self.set_default_size(560, -1)
+        self.set_default_size(620, 420)
         self.add_css_class('dialog')
+        self.add_css_class('smart-dialog')
 
         root = _vbox(10)
         root.set_margin_top(18)

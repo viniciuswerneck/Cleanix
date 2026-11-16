@@ -193,6 +193,19 @@ window {
     color: #B9B7C7;
 }
 
+/* ---------- SMART dialog (texto maior para leitura) ---------- */
+.smart-dialog .muted,
+.smart-dialog .cat-name,
+.smart-dialog .op-sub {
+    font-size: 14px;
+}
+.smart-dialog .dialog-title {
+    font-size: 22px;
+}
+.smart-dialog label {
+    font-size: 14px;
+}
+
 /* ---------- Buttons ---------- */
 .btn-green {
     background-image: none;
