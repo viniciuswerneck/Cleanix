@@ -67,6 +67,10 @@ do sistema.
   além de liberação do cache da memória RAM e gerenciador de aplicativos de
   inicialização. Limpezas mostram o que será removido e pedem confirmação
   (com senha de administrador quando necessário).
+- **Análise de espaço**: encontra arquivos/pastas grandes e arquivos duplicados
+  (por conteúdo) na pasta pessoal ou em outra pasta escolhida, para revisão.
+  Varredura em segundo plano e cancelável, com opção de abrir a pasta do item;
+  nada é apagado automaticamente.
 - **Ajustes** com switches reais para animações do GNOME e limpeza automática
   de lixeira/temporários, aplicados via `gsettings`.
 - **Configurações** com idioma da interface, "confirmar antes de limpar" e

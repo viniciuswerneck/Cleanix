@@ -230,6 +230,8 @@ class CleanixWindow(Gtk.ApplicationWindow):
              lambda *_: self._open_adjustments()),
             (i18n.t('sidebar.xray'), 'computer-symbolic', False,
              lambda *_: self._open_xray()),
+            (i18n.t('sidebar.space'), 'folder-symbolic', False,
+             lambda *_: self._open_space_analysis()),
         ]
         for name, icon, active, on_click in items:
             side.append(self._side_item(name, icon, active, on_click))
@@ -1080,6 +1082,9 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
     def _open_xray(self):
         dialogs.XRayDialog(self).present()
+
+    def _open_space_analysis(self):
+        dialogs.SpaceAnalysisDialog(self).present()
 
     def _show_help_about(self):
         title, body = dialogs.help_about_text()

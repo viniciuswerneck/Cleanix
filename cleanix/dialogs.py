@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """Diálogos do Cleanix: avisos, confirmação, detalhes e histórico."""
 
@@ -13,7 +14,7 @@ gi.require_version('Gdk', '4.0')
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import (adjustments, autostart, history, i18n, memory, optimizer, settings,
-               smart_history, snapshots, systeminfo, xray)
+               smart_history, snapshots, space, systeminfo, xray)
 from .execution import Result, execute_command
 import re
 
@@ -2265,3 +2266,250 @@ class XRayDialog(Gtk.Window):
 
     def _build_export_html(self, priv_error=''):
         return self._build_export_content('html', priv_error)
+
+
+
+class SpaceAnalysisDialog(Gtk.Window):
+    """Análise de arquivos/pastas grandes e duplicados (revisão)."""
+
+    def __init__(self, parent):
+        super().__init__()
+        self.set_title(i18n.t('space.title'))
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(760, 560)
+        self.add_css_class('dialog')
+
+        self._folder = str(Path.home())
+        self._cancel = False
+        self._busy = False
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+
+        root.append(_txt(i18n.t('space.title'), 'dialog-title'))
+        root.append(_txt(i18n.t('space.subtitle'), 'muted', wrap=True))
+
+        folder_row = _hbox(8)
+        folder_row.append(_txt(i18n.t('space.folder') + ':', 'cat-name'))
+        self.folder_label = _txt(self._folder, 'muted', wrap=True)
+        self.folder_label.set_hexpand(True)
+        self.folder_label.set_xalign(0)
+        folder_row.append(self.folder_label)
+        choose = Gtk.Button(label=i18n.t('space.choose'))
+        choose.add_css_class('btn-secondary')
+        choose.connect('clicked', lambda *_: self._choose_folder())
+        folder_row.append(choose)
+        root.append(folder_row)
+
+        controls = _hbox(8)
+        self.scan_btn = Gtk.Button(label=i18n.t('space.scan'))
+        self.scan_btn.add_css_class('btn-green')
+        self.scan_btn.connect('clicked', lambda *_: self._start_scan())
+        controls.append(self.scan_btn)
+        self.cancel_btn = Gtk.Button(label=i18n.t('space.cancel'))
+        self.cancel_btn.add_css_class('btn-secondary')
+        self.cancel_btn.set_sensitive(False)
+        self.cancel_btn.connect('clicked', lambda *_: self._request_cancel())
+        controls.append(self.cancel_btn)
+        spacer = Gtk.Box(); spacer.set_hexpand(True); controls.append(spacer)
+        close = Gtk.Button(label=i18n.t('common.close'))
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        controls.append(close)
+        root.append(controls)
+
+        self.status = _txt(i18n.t('space.ready'), 'muted', wrap=True)
+        root.append(self.status)
+
+        self.notebook = Gtk.Notebook()
+        self.notebook.set_vexpand(True)
+
+        self.large_box = _vbox(8)
+        self.large_scroll = Gtk.ScrolledWindow()
+        self.large_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.large_scroll.set_vexpand(True)
+        self.large_scroll.set_child(self.large_box)
+        self.notebook.append_page(self.large_scroll, Gtk.Label(label=i18n.t('space.tab.large')))
+
+        self.dupes_box = _vbox(8)
+        self.dupes_scroll = Gtk.ScrolledWindow()
+        self.dupes_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.dupes_scroll.set_vexpand(True)
+        self.dupes_scroll.set_child(self.dupes_box)
+        self.notebook.append_page(self.dupes_scroll, Gtk.Label(label=i18n.t('space.tab.duplicates')))
+
+        root.append(self.notebook)
+        self.set_child(root)
+
+    def _choose_folder(self):
+        try:
+            dialog = Gtk.FileDialog()
+            dialog.set_title(i18n.t('space.choose'))
+            def on_done(dlg, res):
+                try:
+                    folder = dlg.select_folder_finish(res)
+                except Exception:
+                    return
+                if folder:
+                    p = folder.get_path()
+                    if p:
+                        self._folder = p
+                        self.folder_label.set_text(p)
+            dialog.select_folder(self, None, on_done)
+        except Exception:
+            # fallback: no-op if not available
+            pass
+
+    def _request_cancel(self):
+        self._cancel = True
+        self.status.set_text(i18n.t('space.cancelled'))
+
+    def _set_busy(self, busy):
+        self._busy = busy
+        self.scan_btn.set_sensitive(not busy)
+        self.cancel_btn.set_sensitive(busy)
+
+    def _clear_box(self, box):
+        child = box.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            box.remove(child)
+            child = nxt
+
+    def _open_path(self, path):
+        target = path
+        try:
+            if os.path.isfile(path):
+                target = os.path.dirname(path) or path
+        except Exception:
+            pass
+        uri = GLib.filename_to_uri(target, None)
+        try:
+            Gtk.show_uri(self, uri, Gdk.CURRENT_TIME)
+        except Exception:
+            try:
+                import subprocess
+                subprocess.Popen(['xdg-open', target])
+            except Exception:
+                pass
+
+    def _add_item_row(self, box, title, subtitle=''):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.add_css_class('cat-row')
+        info = _vbox(2)
+        info.set_hexpand(True)
+        info.append(_txt(title, 'cat-name', wrap=True))
+        if subtitle:
+            info.append(_txt(subtitle, 'muted', wrap=True))
+        row.append(info)
+        btn = Gtk.Button(label=i18n.t('space.open_folder'))
+        btn.add_css_class('btn-secondary')
+        btn.connect('clicked', lambda *_p, p=title: self._open_path(p))
+        row.append(btn)
+        box.append(row)
+
+    def _start_scan(self):
+        if self._busy:
+            return
+        self._cancel = False
+        self._set_busy(True)
+        self.status.set_text(i18n.t('space.scanning'))
+        self._clear_box(self.large_box)
+        self._clear_box(self.dupes_box)
+        folder = self._folder
+        threading.Thread(target=self._scan_work, args=(folder,), daemon=True).start()
+
+    def _scan_work(self, folder):
+        try:
+            large = space.scan_largest(folder, top_files=40, top_dirs=25, cancel=lambda: self._cancel)
+            if self._cancel:
+                GLib.idle_add(self._apply_cancelled)
+                return
+            dupes = space.find_duplicates(folder, min_size=1024*1024, top_groups=30, cancel=lambda: self._cancel)
+        except Exception as exc:
+            GLib.idle_add(self._apply_error, str(exc))
+            return
+        if self._cancel or large.get('cancelled') or dupes.get('cancelled'):
+            GLib.idle_add(self._apply_cancelled)
+            return
+        GLib.idle_add(self._apply_results, large, dupes)
+
+    def _apply_cancelled(self):
+        self._set_busy(False)
+        self.status.set_text(i18n.t('space.cancelled'))
+        return GLib.SOURCE_REMOVE
+
+    def _apply_error(self, detail):
+        self._set_busy(False)
+        self.status.set_text(i18n.t('space.error'))
+        self._clear_box(self.large_box)
+        self.large_box.append(_txt(detail, 'muted', wrap=True))
+        return GLib.SOURCE_REMOVE
+
+    def _apply_results(self, large, dupes):
+        self._set_busy(False)
+        self.status.set_text(i18n.t('space.ready'))
+        self._clear_box(self.large_box)
+        self._clear_box(self.dupes_box)
+
+        # large files
+        self.large_box.append(_txt(i18n.t('space.large.files'), 'cat-name'))
+        files = large.get('files') or []
+        if not files:
+            self.large_box.append(_txt(i18n.t('space.none'), 'muted'))
+        else:
+            for item in files:
+                p = item.get('path') or ''
+                sz = space.format_size(item.get('size') or 0)
+                self._add_item_row(self.large_box, p, sz)
+        # large dirs
+        self.large_box.append(_txt(i18n.t('space.large.dirs'), 'cat-name'))
+        dirs = large.get('dirs') or []
+        if not dirs:
+            self.large_box.append(_txt(i18n.t('space.none'), 'muted'))
+        else:
+            for item in dirs:
+                p = item.get('path') or ''
+                sz = space.format_size(item.get('size') or 0)
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                row.add_css_class('cat-row')
+                info = _vbox(2); info.set_hexpand(True)
+                info.append(_txt(p, 'cat-name', wrap=True))
+                info.append(_txt(sz, 'muted', wrap=True))
+                row.append(info)
+                btn = Gtk.Button(label=i18n.t('space.open_folder'))
+                btn.add_css_class('btn-secondary')
+                btn.connect('clicked', lambda *_b, path=p: self._open_path(path))
+                row.append(btn)
+                self.large_box.append(row)
+
+        # duplicates
+        groups = dupes.get('groups') or []
+        if not groups:
+            self.dupes_box.append(_txt(i18n.t('space.dupes.none'), 'muted', wrap=True))
+        else:
+            for g in groups:
+                header = i18n.t('space.dupes.group',
+                                count=g.get('count', 0),
+                                size=space.format_size(g.get('size') or 0),
+                                wasted=space.format_size(g.get('wasted') or 0))
+                self.dupes_box.append(_txt(header, 'cat-name', wrap=True))
+                for fp in (g.get('files') or []):
+                    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                    row.add_css_class('cat-row')
+                    info = _vbox(2); info.set_hexpand(True)
+                    info.append(_txt(fp, 'muted', wrap=True))
+                    row.append(info)
+                    btn = Gtk.Button(label=i18n.t('space.open_folder'))
+                    btn.add_css_class('btn-secondary')
+                    btn.connect('clicked', lambda *_b, path=fp: self._open_path(path))
+                    row.append(btn)
+                    self.dupes_box.append(row)
+                sep = Gtk.Separator(); sep.set_margin_top(4); sep.set_margin_bottom(4)
+                self.dupes_box.append(sep)
+        return GLib.SOURCE_REMOVE
+
