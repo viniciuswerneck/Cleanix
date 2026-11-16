@@ -212,6 +212,47 @@ window {
 .smart-dialog .xray-detail {
     font-size: 14px;
 }
+.smart-dialog .xray-summary-card {
+    background-color: #2B2938;
+    border: 1px solid #393746;
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+.smart-dialog .xray-summary-line {
+    font-size: 14px;
+    color: #E6E5F0;
+}
+.smart-dialog .xray-topic {
+    background-color: #2B2938;
+    border: 1px solid #393746;
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-top: 4px;
+}
+.smart-dialog expander > title {
+    padding: 6px 4px;
+}
+.smart-dialog expander > title label {
+    font-size: 15px;
+    font-weight: 700;
+    color: #F4F3FA;
+}
+.smart-dialog textview {
+    background-color: #1E1C27;
+    border-radius: 8px;
+    padding: 2px;
+}
+.smart-dialog textview text {
+    background-color: #1E1C27;
+    color: #DCD9EA;
+}
+.smart-dialog scrolledwindow {
+    border-radius: 8px;
+}
+.smart-dialog .xray-source {
+    font-size: 12px;
+    color: #3295F5;
+}
 
 /* ---------- Buttons ---------- */
 .btn-green {

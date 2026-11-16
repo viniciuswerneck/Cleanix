@@ -1171,49 +1171,55 @@ class XRayDialog(Gtk.Window):
         root.append(head)
 
         # Resumo
-        root.append(_txt(i18n.t('xray.summary'), 'card-title'))
-        self.summary_bios = _txt('—', 'muted', wrap=True)
-        self.summary_hw = _txt('—', 'muted', wrap=True)
-        self.summary_prog = _txt('—', 'muted', wrap=True)
+        summary_card = _vbox(6)
+        summary_card.add_css_class('xray-summary-card')
+        summary_card.append(_txt(i18n.t('xray.summary'), 'card-title'))
+        self.summary_bios = _txt('—', 'xray-summary-line', wrap=True)
+        self.summary_hw = _txt('—', 'xray-summary-line', wrap=True)
+        self.summary_prog = _txt('—', 'xray-summary-line', wrap=True)
         for w in (self.summary_bios, self.summary_hw, self.summary_prog):
-            root.append(w)
+            summary_card.append(w)
+        root.append(summary_card)
 
         self.status = _txt('', 'muted', wrap=True)
         root.append(self.status)
 
         # BIOS expander
         self.bios_details = self._make_text_area(180)
-        self.bios_source = _txt('', 'muted')
+        self.bios_source = _txt('', 'xray-source')
         self.bios_full_btn = Gtk.Button(label='🔒 ' + i18n.t('xray.details_full'))
         self.bios_full_btn.add_css_class('btn-secondary')
         self.bios_full_btn.connect('clicked', lambda *_: self._fetch_priv_bios())
-        bios_box = _vbox(6)
+        bios_box = _vbox(8)
+        bios_box.add_css_class('xray-topic')
         bios_box.append(self.bios_source)
         bios_box.append(self.bios_details['scroll'])
         bios_box.append(self.bios_full_btn)
-        self.exp_bios = Gtk.Expander(label=i18n.t('xray.bios'))
+        self.exp_bios = Gtk.Expander(label='🧩 ' + i18n.t('xray.bios'))
         self.exp_bios.set_child(bios_box)
         self.exp_bios.connect('notify::expanded', self._on_expand_bios)
         root.append(self.exp_bios)
 
         # Hardware expander
         self.hw_details = self._make_text_area(220)
-        self.hw_source = _txt('', 'muted')
+        self.hw_source = _txt('', 'xray-source')
         self.hw_full_btn = Gtk.Button(label='🔒 ' + i18n.t('xray.details_full'))
         self.hw_full_btn.add_css_class('btn-secondary')
         self.hw_full_btn.connect('clicked', lambda *_: self._fetch_priv_hw())
-        hw_box = _vbox(6)
+        hw_box = _vbox(8)
+        hw_box.add_css_class('xray-topic')
         hw_box.append(self.hw_source)
         hw_box.append(self.hw_details['scroll'])
         hw_box.append(self.hw_full_btn)
-        self.exp_hw = Gtk.Expander(label=i18n.t('xray.hardware'))
+        self.exp_hw = Gtk.Expander(label='⚙️ ' + i18n.t('xray.hardware'))
         self.exp_hw.set_child(hw_box)
         self.exp_hw.connect('notify::expanded', self._on_expand_hw)
         root.append(self.exp_hw)
 
         # Programs expander
         self.prog_box = _vbox(8)
-        self.prog_note = _txt('', 'muted', wrap=True)
+        self.prog_box.add_css_class('xray-topic')
+        self.prog_note = _txt('', 'xray-source', wrap=True)
         self.prog_box.append(self.prog_note)
         self.prog_sections = {}
         for key, title_key in (
@@ -1224,7 +1230,7 @@ class XRayDialog(Gtk.Window):
             sec = self._make_prog_section(key, i18n.t(title_key))
             self.prog_sections[key] = sec
             self.prog_box.append(sec['expander'])
-        self.exp_prog = Gtk.Expander(label=i18n.t('xray.programs'))
+        self.exp_prog = Gtk.Expander(label='📦 ' + i18n.t('xray.programs'))
         self.exp_prog.set_child(self.prog_box)
         self.exp_prog.connect('notify::expanded', self._on_expand_prog)
         root.append(self.exp_prog)
