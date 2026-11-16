@@ -2480,20 +2480,37 @@ class SpaceAnalysisDialog(Gtk.Window):
         folder = self._folder
         threading.Thread(target=self._scan_work, args=(folder,), daemon=True).start()
 
+    def _on_progress(self, stage, info):
+        def update():
+            if stage == 'hash':
+                done = info.get('done', 0)
+                total = info.get('total', 0) or 0
+                if total:
+                    self.status.set_text(i18n.t('space.progress.hash', done=done, total=total))
+                else:
+                    self.status.set_text(i18n.t('space.scanning'))
+            else:
+                files = info.get('files', 0)
+                self.status.set_text(i18n.t('space.progress.scan', files=files))
+            return GLib.SOURCE_REMOVE
+        GLib.idle_add(update)
+
     def _scan_work(self, folder):
         try:
-            large = space.scan_largest(folder, top_files=40, top_dirs=25, cancel=lambda: self._cancel)
-            if self._cancel:
-                GLib.idle_add(self._apply_cancelled)
+            large = space.scan_largest(folder, top_files=40, top_dirs=25,
+                                       cancel=lambda: self._cancel,
+                                       progress=self._on_progress)
+            if self._cancel or large.get('cancelled'):
+                GLib.idle_add(self._apply_results, large, {'groups': []}, True)
                 return
-            dupes = space.find_duplicates(folder, min_size=1024*1024, top_groups=30, cancel=lambda: self._cancel)
+            dupes = space.find_duplicates(folder, min_size=1024*1024, top_groups=30,
+                                          cancel=lambda: self._cancel,
+                                          progress=self._on_progress)
         except Exception as exc:
             GLib.idle_add(self._apply_error, str(exc))
             return
-        if self._cancel or large.get('cancelled') or dupes.get('cancelled'):
-            GLib.idle_add(self._apply_cancelled)
-            return
-        GLib.idle_add(self._apply_results, large, dupes)
+        partial = bool(self._cancel or large.get('cancelled') or dupes.get('cancelled'))
+        GLib.idle_add(self._apply_results, large, dupes, partial)
 
     def _apply_cancelled(self):
         self._set_busy(False)
@@ -2507,9 +2524,9 @@ class SpaceAnalysisDialog(Gtk.Window):
         self.large_box.append(_txt(detail, 'muted', wrap=True))
         return GLib.SOURCE_REMOVE
 
-    def _apply_results(self, large, dupes):
+    def _apply_results(self, large, dupes, partial=False):
         self._set_busy(False)
-        self.status.set_text(i18n.t('space.ready'))
+        self.status.set_text(i18n.t('space.partial') if partial else i18n.t('space.ready'))
         self._clear_box(self.large_box)
         self._clear_box(self.dupes_box)
 

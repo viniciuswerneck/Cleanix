@@ -5,15 +5,14 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
 
 SKIP_DIR_NAMES = {
-    'proc', 'sys', 'dev', 'run', 'snap',  # common system/virtual (if reached)
+    'proc', 'sys', 'dev', 'run', 'snap',
 }
 SKIP_ABS_PREFIXES = ('/proc', '/sys', '/dev', '/run')
 
 
-def _should_skip_dir(path: str, root: str) -> bool:
+def _should_skip_dir(path: str) -> bool:
     try:
         ap = os.path.abspath(path)
         for pref in SKIP_ABS_PREFIXES:
@@ -24,28 +23,34 @@ def _should_skip_dir(path: str, root: str) -> bool:
     return False
 
 
-def _iter_files(root: str, cancel=None):
-    """Yield (path, size) for regular files under root, not following symlinks."""
+def _emit(progress, stage, **info):
+    if progress:
+        try:
+            progress(stage, info)
+        except Exception:
+            pass
+
+
+def _iter_walk(root: str, cancel=None, progress=None):
+    """Percorre arquivos regulares sem seguir symlinks, rendendo (path, size)."""
     root = os.path.abspath(root)
     stack = [root]
     seen_dirs = set()
+    count = 0
     while stack:
         if cancel and cancel():
             return
         current = stack.pop()
-        if _should_skip_dir(current, root):
+        if _should_skip_dir(current):
             continue
         try:
             st = os.lstat(current)
-        except OSError:
-            continue
-        try:
             dir_key = (st.st_dev, st.st_ino)
             if dir_key in seen_dirs:
                 continue
             seen_dirs.add(dir_key)
-        except Exception:
-            pass
+        except OSError:
+            continue
         try:
             with os.scandir(current) as it:
                 for entry in it:
@@ -58,86 +63,45 @@ def _iter_files(root: str, cancel=None):
                             stack.append(entry.path)
                         elif entry.is_file(follow_symlinks=False):
                             try:
-                                size = entry.stat(follow_symlinks=False).st_size
+                                sz = int(entry.stat(follow_symlinks=False).st_size)
                             except OSError:
                                 continue
-                            yield entry.path, int(size)
+                            count += 1
+                            if count % 200 == 0:
+                                _emit(progress, 'scan', files=count)
+                            yield entry.path, sz
                     except OSError:
                         continue
         except OSError:
             continue
+    _emit(progress, 'scan', files=count)
 
 
-def scan_largest(root: str, top_files: int = 50, top_dirs: int = 30, cancel=None):
+def scan_largest(root: str, top_files: int = 50, top_dirs: int = 30,
+                 cancel=None, progress=None):
     """Retorna maiores arquivos e diretórios (tamanho agregado) sob root."""
     root = os.path.abspath(root)
-    files = []  # (size, path)
-    dir_sizes = {}
-    cancelled = False
-
-    stack = [root]
-    seen_dirs = set()
-    # We'll do a walk collecting file sizes and accumulating per-dir totals by walking
-    # and then computing dir sizes via parent accumulation is easier in a post-pass? 
-    # Simpler: record each file's size to all ancestor dirs under root.
-    # To be efficient enough, collect all file records first? may be memory heavy but ok for home.
     file_records = []
+    cancelled = False
+    _emit(progress, 'scan', files=0)
     try:
-        with_walk_stack = [root]
-        while with_walk_stack:
-            if cancel and cancel():
-                cancelled = True
-                break
-            current = with_walk_stack.pop()
-            if _should_skip_dir(current, root):
-                continue
-            try:
-                st = os.lstat(current)
-                dir_key = (st.st_dev, st.st_ino)
-                if dir_key in seen_dirs:
-                    continue
-                seen_dirs.add(dir_key)
-            except OSError:
-                continue
-            try:
-                with os.scandir(current) as it:
-                    for entry in it:
-                        if cancel and cancel():
-                            cancelled = True
-                            break
-                        try:
-                            if entry.is_symlink():
-                                continue
-                            if entry.is_dir(follow_symlinks=False):
-                                with_walk_stack.append(entry.path)
-                            elif entry.is_file(follow_symlinks=False):
-                                try:
-                                    sz = int(entry.stat(follow_symlinks=False).st_size)
-                                except OSError:
-                                    continue
-                                file_records.append((entry.path, sz))
-                        except OSError:
-                            continue
-            except OSError:
-                continue
-            if cancelled:
-                break
-    except Exception:
-        pass
-
-    # largest files
-    for path, sz in file_records:
-        files.append({'path': path, 'size': sz})
-    files.sort(key=lambda x: x['size'], reverse=True)
-
-    # dir sizes: accumulate per directory path under root
-    root_abs = root
-    for path, sz in file_records:
+        for path, sz in _iter_walk(root, cancel=cancel, progress=progress):
+            file_records.append((path, sz))
         if cancel and cancel():
             cancelled = True
-            break
+    except Exception:
+        pass
+    if cancel and cancel():
+        cancelled = True
+
+    files = [{'path': p, 'size': sz} for p, sz in file_records]
+    files.sort(key=lambda x: x['size'], reverse=True)
+
+    _emit(progress, 'dirs', files=len(file_records))
+    dir_sizes = {}
+    root_abs = root
+    for path, sz in file_records:
         parent = os.path.dirname(path)
-        # climb up to root
         cur = parent
         while True:
             if not (cur == root_abs or cur.startswith(root_abs + os.sep)):
@@ -176,21 +140,23 @@ def _file_hash(path: str, cancel=None):
         return None
 
 
-def find_duplicates(root: str, min_size: int = 1024 * 1024, top_groups: int = 50, cancel=None):
+def find_duplicates(root: str, min_size: int = 1024 * 1024, top_groups: int = 50,
+                    cancel=None, progress=None):
     """Encontra grupos de arquivos duplicados por conteúdo (tamanho+hash)."""
     root = os.path.abspath(root)
     by_size = {}
     cancelled = False
+    _emit(progress, 'scan', files=0)
 
-    # stage 1: group by size
     stack = [root]
     seen_dirs = set()
+    count = 0
     while stack:
         if cancel and cancel():
             cancelled = True
             break
         current = stack.pop()
-        if _should_skip_dir(current, root):
+        if _should_skip_dir(current):
             continue
         try:
             st = os.lstat(current)
@@ -216,6 +182,9 @@ def find_duplicates(root: str, min_size: int = 1024 * 1024, top_groups: int = 50
                                 sz = int(entry.stat(follow_symlinks=False).st_size)
                             except OSError:
                                 continue
+                            count += 1
+                            if count % 200 == 0:
+                                _emit(progress, 'scan', files=count)
                             if sz >= min_size:
                                 by_size.setdefault(sz, []).append(entry.path)
                     except OSError:
@@ -224,40 +193,45 @@ def find_duplicates(root: str, min_size: int = 1024 * 1024, top_groups: int = 50
             continue
         if cancelled:
             break
+    _emit(progress, 'scan', files=count)
 
     groups = []
-    if not cancelled:
-        # stage 2: hash candidates
-        candidates = [(sz, paths) for sz, paths in by_size.items() if len(paths) > 1]
-        # larger potential waste first
-        candidates.sort(key=lambda x: x[0] * (len(x[1]) - 1), reverse=True)
-        for sz, paths in candidates:
+    candidates = [(sz, paths) for sz, paths in by_size.items() if len(paths) > 1]
+    candidates.sort(key=lambda x: x[0] * (len(x[1]) - 1), reverse=True)
+    total_candidates = sum(len(p) for _, p in candidates)
+    hashed = 0
+    _emit(progress, 'hash', done=0, total=total_candidates, groups=0)
+    for sz, paths in candidates:
+        if cancel and cancel():
+            cancelled = True
+            break
+        by_hash = {}
+        for p in paths:
             if cancel and cancel():
                 cancelled = True
                 break
-            by_hash = {}
-            for p in paths:
+            hv = _file_hash(p, cancel=cancel)
+            hashed += 1
+            if hashed % 20 == 0 or hashed == total_candidates:
+                _emit(progress, 'hash', done=hashed, total=total_candidates, groups=len(groups))
+            if hv is None:
                 if cancel and cancel():
                     cancelled = True
-                    break
-                hv = _file_hash(p, cancel=cancel)
-                if hv is None:
-                    if cancel and cancel():
-                        cancelled = True
-                    continue
-                by_hash.setdefault(hv, []).append(p)
-            if cancelled:
-                break
-            for hv, same in by_hash.items():
-                if len(same) > 1:
-                    groups.append({
-                        'hash': hv,
-                        'size': sz,
-                        'count': len(same),
-                        'wasted': sz * (len(same) - 1),
-                        'files': sorted(same),
-                    })
-        groups.sort(key=lambda g: g['wasted'], reverse=True)
+                continue
+            by_hash.setdefault(hv, []).append(p)
+        if cancelled:
+            break
+        for hv, same in by_hash.items():
+            if len(same) > 1:
+                groups.append({
+                    'hash': hv,
+                    'size': sz,
+                    'count': len(same),
+                    'wasted': sz * (len(same) - 1),
+                    'files': sorted(same),
+                })
+    groups.sort(key=lambda g: g['wasted'], reverse=True)
+    _emit(progress, 'hash', done=hashed, total=total_candidates, groups=len(groups))
 
     return {
         'groups': groups[:top_groups],
