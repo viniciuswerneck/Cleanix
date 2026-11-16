@@ -30,11 +30,12 @@ do sistema.
   administrador. Programas separados por APT, Snap e Flatpak, com tamanhos,
   busca única e “Mostrar todos”. Inclui copiar detalhes, expandir/recolher
   tudo, indicador de atividade, “Atualizado às” e `Esc` para fechar.
-- **Relatório HTML completo**: senha única para incluir os detalhes de BIOS e
-  hardware, opção de ocultar números de série, UUIDs e MACs (ligada por
-  padrão), tabelas pesquisáveis e ordenáveis, tema claro/escuro, imprimir/PDF,
-  voltar ao topo, versão do Cleanix no rodapé e abertura automática no
-  navegador após salvar.
+- **Relatório e inventário exportáveis**: relatório **HTML** completo (senha
+  única para incluir detalhes de BIOS e hardware, tabelas pesquisáveis e
+  ordenáveis, tema claro/escuro, imprimir/PDF, voltar ao topo, versão no rodapé
+  e abertura automática no navegador) e exportação em **JSON** e **CSV** para
+  backup/planilhas. Opção de ocultar números de série, UUIDs e MACs (ligada por
+  padrão) vale para HTML, JSON, CSV e para o **resumo para suporte** (copiar).
 - Painel de memória RAM na tela inicial, com uso e capacidade total,
   disponível, cache e gráfico ao vivo, além de um atalho para liberar o cache.
 - Varredura segura de cinco categorias:

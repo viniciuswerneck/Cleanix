@@ -1222,6 +1222,11 @@ class XRayDialog(Gtk.Window):
         self.collapse_btn.add_css_class('xray-action')
         self.collapse_btn.connect('clicked', lambda *_: self._expand_all(False))
         actions.append(self.collapse_btn)
+        self.copy_summary_btn = Gtk.Button(label=i18n.t('xray.copy_summary'))
+        self.copy_summary_btn.add_css_class('btn-secondary')
+        self.copy_summary_btn.add_css_class('xray-action')
+        self.copy_summary_btn.connect('clicked', lambda *_: self._copy_support_summary())
+        actions.append(self.copy_summary_btn)
         root.append(actions)
 
         self.status = _txt('', 'muted', wrap=True)
@@ -1347,9 +1352,19 @@ class XRayDialog(Gtk.Window):
         self.redact_check.add_css_class('xray-privacy')
         footer.append(self.redact_check)
 
+        self.export_json_btn = Gtk.Button(label=i18n.t('xray.export_json'))
+        self.export_json_btn.add_css_class('btn-secondary')
+        self.export_json_btn.connect('clicked', lambda *_: self._export('json'))
+        footer.append(self.export_json_btn)
+
+        self.export_csv_btn = Gtk.Button(label=i18n.t('xray.export_csv'))
+        self.export_csv_btn.add_css_class('btn-secondary')
+        self.export_csv_btn.connect('clicked', lambda *_: self._export('csv'))
+        footer.append(self.export_csv_btn)
+
         self.export_btn = Gtk.Button(label=i18n.t('xray.export_html'))
         self.export_btn.add_css_class('btn-green')
-        self.export_btn.connect('clicked', lambda *_: self._export_html())
+        self.export_btn.connect('clicked', lambda *_: self._export('html'))
         footer.append(self.export_btn)
         root.append(footer)
 
@@ -1517,6 +1532,26 @@ class XRayDialog(Gtk.Window):
                 self.system_details,
                 self._system_detail_text or i18n.t('xray.unavailable'))
 
+    def _copy_support_summary(self):
+        snap = self._snapshot or {}
+        bios = snap.get('bios', {}) or {}
+        hw = snap.get('hardware', {}) or {}
+        text = xray.build_support_summary(
+            snap,
+            bios_details=self._bios_detail_text or bios.get('details') or '',
+            hw_details=self._hw_detail_text or hw.get('details') or '',
+            bios_source=self._bios_source_text,
+            hw_source=self._hw_source_text,
+            redact=self.redact_check.get_active(),
+        )
+        try:
+            clipboard = Gdk.Display.get_default().get_clipboard()
+            clipboard.set(text)
+            self._set_status(i18n.t('xray.summary_copied'))
+        except Exception as exc:
+            log.warning('Falha ao copiar resumo: %s', exc)
+            self._set_status(i18n.t('xray.unavailable'))
+
     def _make_prog_section(self, key, title, icon='📦', variant='blue'):
         card = self._make_card(
             icon, title, badge='', variant=variant, compact=True,
@@ -1561,6 +1596,9 @@ class XRayDialog(Gtk.Window):
         self.bios_full_btn.set_sensitive(not busy)
         self.hw_full_btn.set_sensitive(not busy)
         self.export_btn.set_sensitive(not busy)
+        self.export_json_btn.set_sensitive(not busy)
+        self.export_csv_btn.set_sensitive(not busy)
+        self.copy_summary_btn.set_sensitive(not busy)
         if busy:
             self.spinner.start()
             self._set_status(i18n.t('xray.collecting'))
@@ -1778,15 +1816,24 @@ class XRayDialog(Gtk.Window):
             i18n.t('xray.showing', n=len(show), m=total))
 
 
-    def _export_html(self):
+    def _export(self, kind):
+        self._export_kind = kind
+        if kind == 'json':
+            title = i18n.t('xray.export_json_title')
+            name = i18n.t('xray.export_json_filename')
+        elif kind == 'csv':
+            title = i18n.t('xray.export_csv_title')
+            name = i18n.t('xray.export_csv_filename')
+        else:
+            title = i18n.t('xray.export_title')
+            name = i18n.t('xray.export_filename')
         dialog = Gtk.FileDialog()
-        dialog.set_title(i18n.t('xray.export_title'))
-        dialog.set_initial_name(i18n.t('xray.export_filename'))
+        dialog.set_title(title)
+        dialog.set_initial_name(name)
         try:
             dialog.save(self, None, self._on_export_response)
         except Exception:
-            # fallback: save to home
-            self._write_export(Path.home() / i18n.t('xray.export_filename'))
+            self._write_export(Path.home() / name)
 
     def _on_export_response(self, dialog, result):
         try:
@@ -1800,11 +1847,16 @@ class XRayDialog(Gtk.Window):
             return
         self._write_export(Path(path))
 
+    def _set_export_buttons_sensitive(self, sensitive):
+        self.export_btn.set_sensitive(sensitive)
+        self.export_json_btn.set_sensitive(sensitive)
+        self.export_csv_btn.set_sensitive(sensitive)
+
     def _write_export(self, path):
         if self._priv_bios and self._priv_hw:
             self._finish_export(path, None)
             return
-        self.export_btn.set_sensitive(False)
+        self._set_export_buttons_sensitive(False)
         self._set_status(i18n.t('xray.collecting_full'))
         threading.Thread(target=self._export_work, args=(path,), daemon=True,
                          name='cleanix-xray-export').start()
@@ -1817,7 +1869,7 @@ class XRayDialog(Gtk.Window):
         GLib.idle_add(self._finish_export, path, res)
 
     def _finish_export(self, path, res):
-        self.export_btn.set_sensitive(True)
+        self._set_export_buttons_sensitive(True)
         self._set_status('')
         priv_error = ''
         if res is not None:
@@ -1838,12 +1890,19 @@ class XRayDialog(Gtk.Window):
             if not res.get('ok'):
                 priv_error = res.get('error') or ''
         try:
-            html = self._build_export_html(priv_error)
-            Path(path).write_text(html, encoding='utf-8')
-            opened = self._open_report(path)
-            body = i18n.t('xray.export_done_body', path=str(path))
-            if opened:
-                body += '\n\n' + i18n.t('xray.export_opened')
+            kind = getattr(self, '_export_kind', 'html')
+            content = self._build_export_content(kind, priv_error)
+            Path(path).write_text(content, encoding='utf-8')
+            opened = False
+            if kind == 'html':
+                opened = self._open_report(path)
+                body = i18n.t('xray.export_done_body', path=str(path))
+                if opened:
+                    body += '\n\n' + i18n.t('xray.export_opened')
+            elif kind == 'json':
+                body = i18n.t('xray.export_json_done_body', path=str(path))
+            else:
+                body = i18n.t('xray.export_csv_done_body', path=str(path))
             if priv_error:
                 body += '\n\n' + i18n.t(
                     'xray.html.priv_missing_body', detail=priv_error)
@@ -1861,12 +1920,11 @@ class XRayDialog(Gtk.Window):
             log.warning('Não foi possível abrir o relatório %s: %s', path, exc)
             return False
 
-    def _build_export_html(self, priv_error=''):
+    def _build_export_content(self, kind, priv_error=''):
         snap = self._snapshot or {}
         bios = snap.get('bios', {}) or {}
         hw = snap.get('hardware', {}) or {}
-        return xray.build_report_html(
-            snap,
+        kwargs = dict(
             bios_details=self._bios_detail_text or bios.get('details') or '',
             hw_details=self._hw_detail_text or hw.get('details') or '',
             bios_source=self._bios_source_text,
@@ -1874,3 +1932,11 @@ class XRayDialog(Gtk.Window):
             priv_error=priv_error,
             redact=self.redact_check.get_active(),
         )
+        if kind == 'json':
+            return xray.build_report_json(snap, **kwargs)
+        if kind == 'csv':
+            return xray.build_report_csv(snap, **kwargs)
+        return xray.build_report_html(snap, **kwargs)
+
+    def _build_export_html(self, priv_error=''):
+        return self._build_export_content('html', priv_error)
