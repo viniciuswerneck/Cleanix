@@ -13,7 +13,7 @@ gi.require_version('Gdk', '4.0')
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import (adjustments, autostart, history, i18n, memory, settings,
-               systeminfo, xray)
+               smart_history, systeminfo, xray)
 from .execution import Result, execute_command
 import re
 
@@ -1103,7 +1103,6 @@ class SmartHealthDialog(Gtk.Window):
             f'smart.overall.{overall}')
         self.overall_label.set_text(overall_text)
         attrs = parsed.get('attributes') or []
-        # prioriza atributos críticos
         important = [a for a in attrs if a.get('critical')]
         lines = []
         if important:
@@ -1111,13 +1110,28 @@ class SmartHealthDialog(Gtk.Window):
             for a in important:
                 lines.append(f"- {a.get('name')}: {a.get('raw', a.get('value', ''))}")
         else:
-            # mostra alguns atributos se houver
             if attrs:
                 lines.append(i18n.t('smart.attrs_title'))
                 for a in attrs[:8]:
                     lines.append(f"- {a.get('name')}: {a.get('raw', a.get('value', ''))}")
             else:
                 lines.append(i18n.t('smart.no_attrs'))
+
+        comparison = None
+        try:
+            comparison = smart_history.compare_previous(
+                self.disk_name, self.disk_model, parsed)
+            smart_history.record_check(
+                self.disk_name, self.disk_model, parsed)
+        except Exception as exc:
+            log.warning('Falha no histórico SMART: %s', exc)
+
+        if comparison and comparison.get('worsened'):
+            lines.append('')
+            lines.append('⚠ ' + i18n.t('smart.degraded'))
+            for msg in comparison.get('messages') or []:
+                lines.append('  - ' + str(msg))
+
         self.attrs_label.set_text('\n'.join(lines))
         detail = ''
         if not result.ok and result.error:
@@ -1660,8 +1674,15 @@ class XRayDialog(Gtk.Window):
         system = snap.get('system') or {}
         self._network_detail_text = (
             network.get('details') or i18n.t('xray.unavailable'))
-        self._system_detail_text = (
-            system.get('details') or i18n.t('xray.unavailable'))
+        system_text = system.get('details') or i18n.t('xray.unavailable')
+        smart_known = snap.get('smart_known') or []
+        if smart_known:
+            lines = [system_text, '', '▸ ' + i18n.t('xray.smart_known')]
+            for item in smart_known:
+                label = item.get('overall_text') or item.get('overall') or 'unknown'
+                lines.append(f"  • {item.get('disk','?')} — {label}")
+            system_text = '\n'.join(lines)
+        self._system_detail_text = system_text
         self._set_text_area(self.network_details, self._network_detail_text)
         self._set_text_area(self.system_details, self._system_detail_text)
         net_summary = network.get('summary') or ''

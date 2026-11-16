@@ -25,11 +25,14 @@ do sistema.
   o app orienta e oferece instalação com um clique (ou uso do app Discos).
 - **Raio-X da máquina**: resumo rápido por tópicos (BIOS/sistema, hardware,
   rede, sistema, discos e programas) com detalhes expansíveis, destaques
-  automáticos (BIOS antiga, partição quase cheia, runtimes Flatpak e
-  atualizações pendentes), coleta sob demanda e detalhes completos via
-  administrador. Programas separados por APT, Snap e Flatpak, com tamanhos,
-  busca única e “Mostrar todos”. Inclui copiar detalhes, expandir/recolher
-  tudo, indicador de atividade, “Atualizado às” e `Esc` para fechar.
+  automáticos (BIOS antiga, partição quase cheia, runtimes Flatpak,
+  atualizações pendentes, temperatura alta e bateria degradada), coleta sob
+  demanda e detalhes completos via administrador. Inclui temperatura/sensores e
+  bateria/energia (quando disponíveis), último estado SMART conhecido por disco
+  e histórico local de verificações SMART com aviso de piora. Programas separados
+  por APT, Snap e Flatpak, com tamanhos, busca única e “Mostrar todos”. Inclui
+  copiar detalhes, expandir/recolher tudo, indicador de atividade,
+  “Atualizado às” e `Esc` para fechar.
 - **Relatório e inventário exportáveis**: relatório **HTML** completo (senha
   única para incluir detalhes de BIOS e hardware, tabelas pesquisáveis e
   ordenáveis, tema claro/escuro, imprimir/PDF, voltar ao topo, versão no rodapé

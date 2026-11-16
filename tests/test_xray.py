@@ -450,3 +450,65 @@ class SystemSensorsPowerTest(unittest.TestCase):
         self.assertIn('power', system)
         self.assertEqual(system['sensors']['summary'], 'CPU: 45 °C')
         self.assertTrue(system['power']['present'])
+
+
+class SmartKnownTest(unittest.TestCase):
+    @mock.patch.object(xray.smart_history, 'last_for_disk',
+                       return_value={'overall': 'failed', 'overall_text': 'FAILED', 'timestamp': 't'})
+    @mock.patch.object(xray.systeminfo, 'physical_disks_for_smart',
+                       return_value=[{'name': 'sda', 'model': 'M'}])
+    def test_collect_smart_known(self, *_mocks):
+        known = xray.collect_smart_known()
+        self.assertEqual(known[0]['disk'], 'sda')
+        self.assertEqual(known[0]['overall'], 'failed')
+
+
+class SensorsPowerExportTest(unittest.TestCase):
+    def _snapshot(self):
+        return {
+            'bios': {'summary': 'B', 'details': '', 'fields': {}},
+            'hardware': {'summary': 'H', 'details': ''},
+            'programs': {'apt': [], 'snap': [], 'flatpak_apps': [],
+                         'flatpak_runtimes': 0, 'summary': ''},
+            'network': {'summary': 'n', 'details': '', 'interfaces': []},
+            'system': {
+                'summary': 's', 'details': 'd', 'updates': 0,
+                'sensors': {'summary': 'CPU: 45 °C', 'readings': [{'label': 'CPU', 'temp_c': 45.0}]},
+                'power': {'present': True, 'summary': '80%, Discharging', 'health_pct': 90.0},
+            },
+            'disks': [], 'alerts': [], 'limitations': [],
+            'smart_known': [{'disk': 'sda', 'model': 'M', 'overall': 'passed', 'overall_text': 'PASSED', 'timestamp': 't'}],
+        }
+
+    def test_json_includes_sensors_power_smart(self):
+        import json
+        data = json.loads(xray.build_report_json(self._snapshot()))
+        self.assertEqual(data['system']['sensors']['summary'], 'CPU: 45 °C')
+        self.assertTrue(data['system']['power']['present'])
+        self.assertEqual(data['smart_known'][0]['disk'], 'sda')
+
+    def test_html_includes_sensors_power_smart(self):
+        html = xray.build_report_html(self._snapshot())
+        self.assertIn('CPU: 45 °C', html)
+        self.assertIn('80%, Discharging', html)
+        self.assertIn('sda', html)
+
+    def test_summary_includes_sensors_power_smart(self):
+        text = xray.build_support_summary(self._snapshot())
+        self.assertIn('CPU: 45 °C', text)
+        self.assertIn('80%, Discharging', text)
+        self.assertIn('sda', text)
+
+    def test_csv_includes_smart_known(self):
+        import csv, io
+        text = xray.build_report_csv(self._snapshot())
+        rows = list(csv.reader(io.StringIO(text)))
+        self.assertTrue(any(r and r[0] == 'smart' and r[2] == 'sda' for r in rows))
+
+    def test_exports_tolerate_missing_new_fields(self):
+        snap = {'bios': {}, 'hardware': {}, 'programs': {}, 'network': {},
+                'system': {}, 'disks': [], 'alerts': [], 'limitations': []}
+        xray.build_report_json(snap)
+        xray.build_report_html(snap)
+        xray.build_report_csv(snap)
+        xray.build_support_summary(snap)

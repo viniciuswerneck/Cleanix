@@ -13,7 +13,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from . import i18n, systeminfo
+from . import i18n, smart_history, systeminfo
 from . import version as cleanix_version
 from .execution import execute_command
 
@@ -606,6 +606,31 @@ def _hardware_details() -> tuple[str, str]:
     return summary, details
 
 
+def collect_smart_known() -> list[dict]:
+    """Lê o último estado SMART conhecido por disco físico (sem smartctl)."""
+    known = []
+    try:
+        disks = systeminfo.physical_disks_for_smart()
+    except Exception:
+        disks = []
+    for disk in disks:
+        name = disk.get('name') or ''
+        model = disk.get('model') or ''
+        try:
+            last = smart_history.last_for_disk(name, model)
+        except Exception:
+            last = None
+        if last:
+            known.append({
+                'disk': name,
+                'model': model,
+                'overall': last.get('overall') or 'unknown',
+                'overall_text': last.get('overall_text') or '',
+                'timestamp': last.get('timestamp') or '',
+            })
+    return known
+
+
 def collect_unprivileged() -> dict:
     limitations: list[str] = []
     fields = read_dmi_fields()
@@ -655,10 +680,19 @@ def collect_unprivileged() -> dict:
     except Exception:
         disks = []
 
+    smart_known = collect_smart_known()
+
     alerts = build_alerts(
         fields.get('bios_date', ''), disks, flatpak_runtimes,
         system.get('updates', 0), datetime.now().year,
         sensors=system.get('sensors'), power=system.get('power'))
+    for item in smart_known:
+        if (item.get('overall') or '') == 'failed':
+            alerts.append({
+                'level': 'warn',
+                'text': i18n.t('xray.alert.smart_failed',
+                               disk=item.get('disk') or '?'),
+            })
 
     return {
         'bios': {'summary': bios_summary, 'details': bios_details, 'fields': fields},
@@ -673,6 +707,7 @@ def collect_unprivileged() -> dict:
         'network': network,
         'system': system,
         'disks': disks,
+        'smart_known': smart_known,
         'alerts': alerts,
         'limitations': limitations,
     }
@@ -1157,6 +1192,7 @@ def build_report_html(snapshot, bios_details='', hw_details='',
     system = snap.get('system', {}) or {}
     disks = snap.get('disks', []) or []
     alerts = snap.get('alerts', []) or []
+    smart_known = snap.get('smart_known') or []
     fields = bios.get('fields') or {}
     limitations = snap.get('limitations') or []
 
@@ -1349,7 +1385,11 @@ def build_report_html(snapshot, bios_details='', hw_details='',
         '<section class="card" id="sistema">'
         '<h2>🩺 ' + esc(i18n.t('xray.section.systeminfo')) + '</h2>'
         '<p class="note">' + esc(system.get('summary') or '') + '</p>'
-        + code_block(system.get('details') or '') + '</section>\n'
+        + (('<p class="note">' + esc(i18n.t('xray.system.temperature') + ': ' + ((system.get('sensors') or {}).get('summary') or '')) + '</p>') if (system.get('sensors') or {}).get('summary') else '')
+        + (('<p class="note">' + esc(i18n.t('xray.system.battery') + ': ' + ((system.get('power') or {}).get('summary') or '')) + '</p>') if (system.get('power') or {}).get('present') and (system.get('power') or {}).get('summary') else '')
+        + code_block(system.get('details') or '')
+        + (('<h3 style="margin:14px 0 8px;font-size:15px">' + esc(i18n.t('xray.smart_known')) + '</h3><ul class="plain">' + ''.join('<li>' + esc((i.get('disk') or '?') + ' — ' + (i.get('overall_text') or i.get('overall') or 'unknown')) + '</li>' for i in smart_known) + '</ul>') if smart_known else '')
+        + '</section>\n'
         '<section class="card" id="discos">'
         '<h2>💽 ' + esc(i18n.t('xray.section.disks')) + '</h2>'
         '<div class="table-wrap"><table class="sortable"><thead><tr><th>'
@@ -1479,6 +1519,18 @@ def build_support_summary(snapshot, bios_details='', hw_details='',
     lines.append('')
     lines.append('[' + i18n.t('xray.section.systeminfo') + ']')
     lines.append(system.get('summary') or i18n.t('xray.unavailable'))
+    sensors = system.get('sensors') or {}
+    if sensors.get('summary'):
+        lines.append('  ' + i18n.t('xray.system.temperature') + ': ' + sensors['summary'])
+    power = system.get('power') or {}
+    if power.get('present') and power.get('summary'):
+        lines.append('  ' + i18n.t('xray.system.battery') + ': ' + power['summary'])
+    smart_known = snap.get('smart_known') or []
+    if smart_known:
+        lines.append('  ' + i18n.t('xray.smart_known') + ':')
+        for item in smart_known:
+            label = item.get('overall_text') or item.get('overall') or 'unknown'
+            lines.append(f"    - {item.get('disk','?')} ({item.get('model','')}) {label}")
 
     lines.append('')
     lines.append('[' + i18n.t('xray.programs') + ']')
@@ -1576,6 +1628,7 @@ def build_report_json(snapshot, bios_details='', hw_details='',
         },
         'system': dict(system),
         'disks': list(disks),
+        'smart_known': list(snap.get('smart_known') or []),
         'alerts': list(alerts),
         'programs': {
             'summary': programs.get('summary') or '',
@@ -1630,5 +1683,12 @@ def build_report_csv(snapshot, bios_details='', hw_details='',
     for alert in alerts:
         writer.writerow(['alert', '', '', '', '', '', '', '', '', '',
                          alert.get('level') or '', alert.get('text') or ''])
+
+    for item in (snap.get('smart_known') or []):
+        writer.writerow([
+            'smart', '', item.get('disk') or '',
+            item.get('overall_text') or item.get('overall') or '',
+            item.get('model') or '', '', '', '', '', '', '', '',
+        ])
 
     return output.getvalue()
