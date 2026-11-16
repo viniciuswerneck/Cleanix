@@ -138,17 +138,36 @@ def _bios_details(fields: dict[str, str]) -> str:
         'bios_date': 'Data da BIOS',
         'chassis_vendor': 'Fabricante do chassi',
     }
-    lines = []
-    for k in DMI_KEYS:
+    sections = []
+    sys_lines = []
+    for k in ('sys_vendor', 'product_name', 'product_version', 'chassis_vendor'):
         if k in fields:
-            lines.append(f"{labels.get(k, k)}: {fields[k]}")
+            sys_lines.append(f"• {labels.get(k, k)}: {fields[k]}")
+    if sys_lines:
+        sections.append("Sistema\n" + "\n".join(sys_lines))
+
+    board_lines = []
+    for k in ('board_vendor', 'board_name'):
+        if k in fields:
+            board_lines.append(f"• {labels.get(k, k)}: {fields[k]}")
+    if board_lines:
+        sections.append("Placa-mãe\n" + "\n".join(board_lines))
+
+    bios_lines = []
+    for k in ('bios_vendor', 'bios_version', 'bios_date'):
+        if k in fields:
+            bios_lines.append(f"• {labels.get(k, k)}: {fields[k]}")
+    if bios_lines:
+        sections.append("BIOS/Firmware\n" + "\n".join(bios_lines))
+
     try:
         u = os.uname()
-        lines.append(f"Kernel: {u.release}")
-        lines.append(f"Arquitetura: {u.machine}")
+        sections.append("Sistema operacional\n"
+                        f"• Kernel: {u.release}\n"
+                        f"• Arquitetura: {u.machine}")
     except Exception:
         pass
-    return '\n'.join(lines) if lines else ''
+    return '\n\n'.join(sections) if sections else ''
 
 
 def _hardware_details() -> tuple[str, str]:
@@ -168,30 +187,36 @@ def _hardware_details() -> tuple[str, str]:
                         break
     except OSError:
         pass
-    if shutil.which('lscpu'):
-        lscpu = _cmd('lscpu')
-        if lscpu:
-            for line in lscpu.splitlines():
-                if line.startswith('Model name:') and not cpu_model:
-                    cpu_model = line.split(':', 1)[1].strip()
-            detail_lines.append('== CPU (lscpu) ==')
-            detail_lines.append(lscpu)
     cores = os.cpu_count() or 0
     if cpu_model or cores:
         summary_parts.append(f"CPU: {cpu_model or 'N/D'} ({cores} núcleos lógicos)")
-        if not any(l.startswith('== CPU') for l in detail_lines):
-            detail_lines.append('== CPU ==')
-            if cpu_model:
-                detail_lines.append(f"Modelo: {cpu_model}")
-            detail_lines.append(f"Núcleos lógicos: {cores}")
+    detail_lines.append('▸ CPU')
+    if cpu_model:
+        detail_lines.append(f"  • Modelo: {cpu_model}")
+    detail_lines.append(f"  • Núcleos lógicos: {cores}")
+    if shutil.which('lscpu'):
+        lscpu = _cmd('lscpu')
+        if lscpu:
+            # keep compact but readable highlights
+            wanted = ('Architecture:', 'CPU(s):', 'Model name:', 'Thread(s) per core:',
+                      'Core(s) per socket:', 'Socket(s):', 'CPU max MHz:', 'CPU min MHz:',
+                      'Vendor ID:', 'Virtualization:')
+            highlights = [ln for ln in lscpu.splitlines() if ln.startswith(wanted)]
+            if highlights:
+                detail_lines.append('')
+                detail_lines.extend('  ' + ln for ln in highlights)
 
     # Memory
     mem = systeminfo.get_mem_info()
     if mem.total:
         summary_parts.append(f"RAM: {systeminfo.format_bytes(mem.total)}")
-        detail_lines.append('\n== Memória ==')
-        detail_lines.append(f"Total: {systeminfo.format_bytes(mem.total)}")
-        detail_lines.append(f"Disponível: {systeminfo.format_bytes(mem.available)}")
+    detail_lines.append('\n▸ Memória')
+    if mem.total:
+        detail_lines.append(f"  • Total: {systeminfo.format_bytes(mem.total)}")
+        detail_lines.append(f"  • Disponível: {systeminfo.format_bytes(mem.available)}")
+        detail_lines.append(f"  • Em uso: {systeminfo.format_bytes(mem.used)}")
+    else:
+        detail_lines.append('  • Indisponível')
 
     # Disks
     try:
@@ -201,14 +226,20 @@ def _hardware_details() -> tuple[str, str]:
             names = ', '.join(
                 f"{d.get('name')} ({systeminfo.format_bytes(d.get('size_total', 0))})" for d in phys[:4])
             summary_parts.append(f"Discos: {names}")
+        detail_lines.append('\n▸ Discos e partições')
         if disks:
-            detail_lines.append('\n== Discos/partições ==')
             for d in disks[:20]:
                 t = systeminfo.format_bytes(d.get('size_total', 0))
                 mp = d.get('mount_point') or ''
-                detail_lines.append(f"- {d.get('name')} ({d.get('type')}): {t} {mp}".strip())
+                dtype = d.get('type') or ''
+                prefix = '  •' if dtype == 'disk' else '    -'
+                extra = f"  [{mp}]" if mp else ''
+                detail_lines.append(f"{prefix} {d.get('name')} ({dtype}, {t}){extra}")
+        else:
+            detail_lines.append('  • Indisponível')
     except Exception:
-        pass
+        detail_lines.append('\n▸ Discos e partições')
+        detail_lines.append('  • Indisponível')
 
     # PCI/GPU/USB
     if shutil.which('lspci'):
@@ -218,23 +249,37 @@ def _hardware_details() -> tuple[str, str]:
                     if re.search(r'VGA|3D|Display', ln, re.I)]
             if gpus:
                 summary_parts.append(f"GPU: {gpus[0].split(': ', 1)[-1][:60]}")
-            detail_lines.append('\n== PCI ==')
-            detail_lines.append(lspci)
+            detail_lines.append('\n▸ GPU (PCI)')
+            for g in gpus[:6]:
+                detail_lines.append('  • ' + g.split(': ', 1)[-1])
+            detail_lines.append('\n▸ Dispositivos PCI')
+            # show concise list (limit to avoid wall of text)
+            pci_lines = lspci.splitlines()
+            for ln in pci_lines[:40]:
+                detail_lines.append('  • ' + ln)
+            if len(pci_lines) > 40:
+                detail_lines.append(f'  … (+{len(pci_lines)-40} itens)')
     else:
         limitations.append('lspci indisponível')
+        detail_lines.append('\n▸ PCI')
+        detail_lines.append('  • Indisponível (lspci)')
 
     if shutil.which('lsusb'):
         lsusb = _cmd('lsusb')
         if lsusb:
-            detail_lines.append('\n== USB ==')
-            detail_lines.append(lsusb)
+            detail_lines.append('\n▸ USB')
+            for ln in lsusb.splitlines()[:30]:
+                detail_lines.append('  • ' + ln)
+            usb_lines = lsusb.splitlines()
+            if len(usb_lines) > 30:
+                detail_lines.append(f'  … (+{len(usb_lines)-30} itens)')
     else:
         limitations.append('lsusb indisponível')
 
     summary = ' | '.join(summary_parts) if summary_parts else 'Hardware: informações limitadas'
     details = '\n'.join(detail_lines).strip()
     if limitations:
-        details += '\n\nLimitações: ' + ', '.join(limitations)
+        details += '\n\n⚠ Limitações: ' + ', '.join(limitations)
     return summary, details
 
 
