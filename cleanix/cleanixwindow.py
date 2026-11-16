@@ -17,15 +17,12 @@ from . import (charts, dialogs, history, i18n, memory, scanner, settings,
 
 CATEGORY_COLORS = ('#3295F5', '#20C957', '#F4510B', '#914CF5', '#F5A623')
 HEALTH_TEXTS = {
-    'ok': ('Seu sistema está saudável!', '#25CE60', '✓',
-           'Nenhum problema crítico encontrado.', 'ok-text',
-           'Tudo funcionando bem!'),
-    'warn': ('Atenção: pouco espaço em disco', '#F5A623', '!',
-             'Considere liberar espaço em disco.', 'warn-text',
-             'Pouco espaço livre'),
-    'bad': ('Espaço em disco crítico!', '#F4510B', '×',
-            'Libere espaço o quanto antes.', 'bad-text',
-            'Espaço em disco crítico'),
+    'ok': ('health.ok.title', '#25CE60', '✓', 'health.ok.message',
+           'ok-text'),
+    'warn': ('health.warn.title', '#F5A623', '!', 'health.warn.message',
+             'warn-text'),
+    'bad': ('health.bad.title', '#F4510B', '×', 'health.bad.message',
+            'bad-text'),
 }
 
 
@@ -97,10 +94,6 @@ def split_size(text):
     return text, ''
 
 
-def plural(count, singular, plural_form):
-    return f'{count} {singular if count == 1 else plural_form}'
-
-
 class CleanixWindow(Gtk.ApplicationWindow):
 
     def __init__(self, application):
@@ -113,7 +106,6 @@ class CleanixWindow(Gtk.ApplicationWindow):
         self.results = {}
         self.scan_time = None
         self._busy = False
-        self._syncing = False
         self._cpu_sample = None
         self._line_values = []
         self._memory_values = []
@@ -121,7 +113,6 @@ class CleanixWindow(Gtk.ApplicationWindow):
         self.history_rows = []
         self.metric_labels = {}
         self.metric_bars = {}
-        self.action_buttons = []
 
         self._setup_css()
         self._build_ui()
@@ -305,9 +296,9 @@ class CleanixWindow(Gtk.ApplicationWindow):
         scroller.set_child(content)
 
         content.append(self._block_health())
+        content.append(self._block_cleanup())
         content.append(self._block_memory())
-        content.append(self._block_cards())
-        content.append(self._block_actions())
+        content.append(self._block_disk_cpu())
         content.append(self._block_bottom())
         return scroller
 
@@ -322,16 +313,15 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
         info = vbox(4)
         info.set_valign(Gtk.Align.CENTER)
-        self.health_title = txt('Seu sistema está saudável!', 'h1')
+        self.health_title = txt(i18n.t('health.ok.title'), 'h1')
         info.append(self.health_title)
-        self.last_check_label = txt('Ainda não verificado', 'sub')
+        self.last_check_label = txt(i18n.t('health.not_checked'), 'sub')
         info.append(self.last_check_label)
 
         ok = hbox(6)
         self.health_icon = markup('<span foreground="#25CE60">✓</span>')
         ok.append(self.health_icon)
-        self.health_text = txt('Nenhum problema crítico encontrado.',
-                               'ok-text')
+        self.health_text = txt(i18n.t('health.ok.message'), 'ok-text')
         ok.append(self.health_text)
         info.append(ok)
 
@@ -340,11 +330,14 @@ class CleanixWindow(Gtk.ApplicationWindow):
         card.append(geral)
 
         card.append(vsep())
-        card.append(self._metric('disk', '🗄️', 'Disco Livre', '#20C957'))
+        card.append(self._metric('disk', '🗄️', i18n.t('metric.disk_free'),
+                                 '#20C957'))
         card.append(vsep())
-        card.append(self._metric('mem', '🟩', 'Memória', '#3295F5'))
+        card.append(self._metric('mem', '🟩', i18n.t('metric.memory'),
+                                 '#3295F5'))
         card.append(vsep())
-        card.append(self._metric('cpu', '🟪', 'CPU', '#914CF5'))
+        card.append(self._metric('cpu', '🟪', i18n.t('metric.cpu'),
+                                 '#914CF5'))
         return card
 
     def _metric(self, key, icon, label, color):
@@ -376,12 +369,13 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
         head = hbox(8)
         head.append(emoji('🧠'))
-        head.append(txt('Memória RAM', 'card-title'))
+        head.append(txt(i18n.t('memory.title'), 'card-title'))
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
         head.append(spacer)
 
-        self.memory_release_btn = Gtk.Button(label='Liberar memória')
+        self.memory_release_btn = Gtk.Button(
+            label=i18n.t('memory.release'))
         self.memory_release_btn.add_css_class('btn-secondary')
         self.memory_release_btn.connect('clicked',
                                         lambda *_: self._open_memory())
@@ -395,13 +389,15 @@ class CleanixWindow(Gtk.ApplicationWindow):
         info.set_valign(Gtk.Align.CENTER)
         self.memory_panel_value = txt('—', 'big-number')
         info.append(self.memory_panel_value)
-        self.memory_panel_sub = txt('Lendo a memória...', 'muted')
+        self.memory_panel_sub = txt(i18n.t('memory.reading'), 'muted')
         info.append(self.memory_panel_sub)
 
         stats = hbox(16)
         stats.set_margin_top(4)
-        self.memory_available_label = txt('Disponível: —', 'muted')
-        self.memory_cache_label = txt('Cache: —', 'muted')
+        self.memory_available_label = txt(i18n.t('memory.available', value='—'),
+                                          'muted')
+        self.memory_cache_label = txt(i18n.t('memory.cache', value='—'),
+                                      'muted')
         stats.append(self.memory_available_label)
         stats.append(self.memory_cache_label)
         info.append(stats)
@@ -426,12 +422,14 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
         self.memory_panel_value.set_text(systeminfo.format_bytes(mem.used))
         self.memory_panel_sub.set_text(
-            f'de {systeminfo.format_bytes(mem.total)} · '
-            f'{mem.percent_used:.0f}% em uso')
+            i18n.t('memory.of_total',
+                   total=systeminfo.format_bytes(mem.total),
+                   percent=i18n.format_number(mem.percent_used, 0)))
         self.memory_available_label.set_text(
-            f'Disponível: {systeminfo.format_bytes(mem.available)}')
+            i18n.t('memory.available',
+                   value=systeminfo.format_bytes(mem.available)))
         self.memory_cache_label.set_text(
-            f'Cache: {systeminfo.format_bytes(cache)}')
+            i18n.t('memory.cache', value=systeminfo.format_bytes(cache)))
 
         self._memory_values.append(mem.percent_used / 100.0)
         self._memory_values = self._memory_values[-30:]
@@ -442,209 +440,132 @@ class CleanixWindow(Gtk.ApplicationWindow):
             self, on_released=self._refresh_memory_panel)
         dialog.present()
 
-    # ---- Bloco 2: três cartões ----
-    def _block_cards(self):
-        row = hbox(16)
-
-        # ---- Cartão A: Espaço recuperável ----
-        a = vbox(10)
-        a.add_css_class('card')
-        a.set_size_request(320, -1)
-
-        a_top = hbox(14)
-        a_top.append(emoji('🗑️', 'app-logo'))  # large trash
-        a_info = vbox(2)
-        a_info.set_valign(Gtk.Align.CENTER)
-        a_info.append(txt('Espaço Recuperável', 'card-title'))
-        self.recoverable_label = txt('—', 'big-number')
-        a_info.append(self.recoverable_label)
-        self.recoverable_sub = txt('Calculando...', 'muted')
-        a_info.append(self.recoverable_sub)
-        a_top.append(a_info)
-        a.append(a_top)
-
-        self.details_btn = Gtk.Button()
-        self.details_btn.add_css_class('btn-green')
-        bcontent = hbox(8)
-        bcontent.set_halign(Gtk.Align.CENTER)
-        bcontent.append(emoji('🔍'))
-        bcontent.append(txt('Ver Detalhes...', halign=Gtk.Align.CENTER))
-        self.details_btn.set_child(bcontent)
-        self.details_btn.connect('clicked', lambda *_: self._open_details())
-        a.append(self.details_btn)
-        row.append(a)
-
-        # ---- Cartão B: Uso do disco ----
-        b = vbox(10)
-        b.add_css_class('card')
-        b.set_hexpand(True)
-
-        b_head = hbox(8)
-        b_head.append(emoji('🥧'))
-        b_head.append(txt('Uso do Disco', 'card-title'))
-        b.append(b_head)
-
-        b_mid = hbox(16)
-        self.disk_donut = charts.make_donut(
-            [(0.5, '#3295F5'), (0.5, '#20C957')],
-            center_markup="<span size='x-large' weight='bold'>—</span>",
-            size=150, thickness=22)
-        b_mid.append(self.disk_donut)
-
-        legend = vbox(10)
-        legend.set_valign(Gtk.Align.CENTER)
-        l1 = hbox(8)
-        l1.append(markup('<span foreground="#3295F5">●</span>'))
-        self.disk_used_label = txt('Usado   —', 'legend')
-        l1.append(self.disk_used_label)
-        l2 = hbox(8)
-        l2.append(markup('<span foreground="#20C957">●</span>'))
-        self.disk_free_label = txt('Livre   —', 'legend')
-        l2.append(self.disk_free_label)
-        legend.append(l1)
-        legend.append(l2)
-        b_mid.append(legend)
-        b.append(b_mid)
-
-        self.disk_total_label = txt('Total: —', 'muted')
-        b.append(self.disk_total_label)
-        row.append(b)
-
-        # ---- Cartão C: Sistema ----
-        c = vbox(10)
-        c.add_css_class('card')
-        c.set_hexpand(True)
-
-        c_head = hbox(8)
-        c_head.append(emoji('📈'))
-        c_head.append(txt('Sistema', 'card-title'))
-        c.append(c_head)
-
-        self.line_chart = charts.make_line_chart(width=180, height=120)
-        self.line_chart.set_values([])
-        c.append(self.line_chart)
-
-        strip = hbox(8)
-        strip.add_css_class('sys-strip')
-        self.system_strip_icon = markup('<span foreground="#25CE60">✓</span>')
-        strip.append(self.system_strip_icon)
-        self.system_strip_text = txt('Tudo funcionando bem!', 'ok-text')
-        strip.append(self.system_strip_text)
-        c.append(strip)
-        row.append(c)
-        return row
-
-    # ---- Bloco 3: ações ----
-    def _block_actions(self):
-        card = vbox(14)
+    # ---- Bloco 2: limpeza ----
+    def _block_cleanup(self):
+        card = vbox(10)
         card.add_css_class('card')
 
-        title = hbox(8)
-        title.append(emoji('🧹'))
-        title.append(txt('O que deseja fazer?', 'h1'))
-        card.append(title)
+        head = hbox(8)
+        head.append(emoji('🧹'))
+        head.append(txt(i18n.t('cleanup.title'), 'card-title'))
+        card.append(head)
 
-        row = hbox(14)
+        body = hbox(18)
 
-        clean = self._action('🧹', 'Limpeza Inteligente',
-                             'Remova arquivos temporários, caches e lixo do sistema.',
-                             selected=True)
-        clean.connect('clicked', lambda *_: self._open_details())
-        self.action_buttons.append(clean)
-        row.append(clean)
-
-        optimize = self._action('🚀', 'Otimização',
-                                'Melhore o desempenho do seu Ubuntu.')
-        optimize.connect('clicked', lambda *_: self._open_optimizer())
-        self.action_buttons.append(optimize)
-        row.append(optimize)
-
-        adjust = self._action('🎛️', 'Ajustes',
-                              'Personalize e ajuste seu sistema com segurança.')
-        adjust.connect('clicked', lambda *_: self._open_adjustments())
-        self.action_buttons.append(adjust)
-        row.append(adjust)
-
-        card.append(row)
-        return card
-
-    def _action(self, icon, title, desc, selected=False):
-        btn = Gtk.Button()
-        btn.add_css_class('action-card')
-        if selected:
-            btn.add_css_class('action-sel')
-
-        row = hbox(12)
-        row.append(emoji(icon, 'action-icon'))
-
-        info = vbox(3)
+        info = vbox(6)
+        info.set_size_request(300, -1)
         info.set_valign(Gtk.Align.CENTER)
-        info.set_hexpand(True)
-        info.append(txt(title, 'action-title'))
-        info.append(txt(desc, 'action-desc', wrap=True, width=26))
-        row.append(info)
+        info.append(txt(i18n.t('cleanup.recoverable'), 'metric-label'))
+        self.recoverable_label = txt('—', 'big-number')
+        info.append(self.recoverable_label)
+        self.recoverable_sub = txt(i18n.t('cleanup.calculating'), 'muted',
+                                   wrap=True)
+        info.append(self.recoverable_sub)
 
-        row.append(emoji('→', 'arrow-circle'))
-        btn.set_child(row)
-        return btn
+        self.cleanup_review_btn = Gtk.Button(
+            label=i18n.t('cleanup.review'))
+        self.cleanup_review_btn.add_css_class('btn-green')
+        self.cleanup_review_btn.set_margin_top(4)
+        self.cleanup_review_btn.connect('clicked',
+                                        lambda *_: self._open_details())
+        info.append(self.cleanup_review_btn)
+        body.append(info)
 
-    # ---- Bloco 4: informações ----
-    def _block_bottom(self):
-        row = hbox(16)
-
-        # ---- Categorias ----
-        a = vbox(10)
-        a.add_css_class('card')
-        a.set_size_request(520, -1)
-        a.append(txt('Categorias de Limpeza', 'card-title'))
-
-        inner = hbox(18)
-        self.cat_list = vbox(8)
+        self.cat_list = vbox(6)
         self.cat_list.set_hexpand(True)
-
+        self.cat_list.set_valign(Gtk.Align.CENTER)
         for cat in self.categories:
             r = hbox(10)
-            check = Gtk.CheckButton()
-            check.set_active(cat.key in self.selected)
-            check.set_valign(Gtk.Align.CENTER)
-            if cat.requires_admin:
-                check.set_tooltip_text('Precisa da senha de administrador')
-            check.connect('toggled', self._on_cat_toggle, cat.key)
-            r.append(check)
             r.append(emoji(dialogs.CATEGORY_ICONS.get(cat.key, '📁')))
-
-            name_lbl = txt(cat.label, 'cat-name')
+            name_lbl = txt(i18n.t(f'category.{cat.key}'), 'cat-name')
             name_lbl.set_hexpand(True)
             r.append(name_lbl)
-
             size_lbl = txt('—', 'cat-size')
             r.append(size_lbl)
-
-            self.cat_rows[cat.key] = (check, size_lbl)
+            self.cat_rows[cat.key] = size_lbl
             self.cat_list.append(r)
-
-        inner.append(self.cat_list)
+        body.append(self.cat_list)
 
         self.cat_donut = charts.make_donut(
             [(1.0, '#2B2938')],
             center_markup="<span size='large' weight='bold'>—</span>",
             size=125, thickness=20)
-        inner.append(self.cat_donut)
-        a.append(inner)
-        row.append(a)
+        body.append(self.cat_donut)
+        card.append(body)
+        return card
 
-        # ---- Últimas ações ----
+    # ---- Bloco 3: disco e CPU ----
+    def _block_disk_cpu(self):
+        row = hbox(16)
+
+        disk = vbox(10)
+        disk.add_css_class('card')
+        disk.set_hexpand(True)
+
+        d_head = hbox(8)
+        d_head.append(emoji('🥧'))
+        d_head.append(txt(i18n.t('disk.title'), 'card-title'))
+        disk.append(d_head)
+
+        d_mid = hbox(16)
+        self.disk_donut = charts.make_donut(
+            [(0.5, '#3295F5'), (0.5, '#20C957')],
+            center_markup="<span size='x-large' weight='bold'>—</span>",
+            size=150, thickness=22)
+        d_mid.append(self.disk_donut)
+
+        legend = vbox(10)
+        legend.set_valign(Gtk.Align.CENTER)
+        l1 = hbox(8)
+        l1.append(markup('<span foreground="#3295F5">●</span>'))
+        self.disk_used_label = txt(i18n.t('disk.used', value='—'), 'legend')
+        l1.append(self.disk_used_label)
+        l2 = hbox(8)
+        l2.append(markup('<span foreground="#20C957">●</span>'))
+        self.disk_free_label = txt(i18n.t('disk.free', value='—'), 'legend')
+        l2.append(self.disk_free_label)
+        legend.append(l1)
+        legend.append(l2)
+        d_mid.append(legend)
+        disk.append(d_mid)
+
+        self.disk_total_label = txt(i18n.t('disk.total', value='—'), 'muted')
+        disk.append(self.disk_total_label)
+        row.append(disk)
+
+        cpu = vbox(10)
+        cpu.add_css_class('card')
+        cpu.set_hexpand(True)
+
+        c_head = hbox(8)
+        c_head.append(emoji('📈'))
+        c_head.append(txt(i18n.t('cpu.title'), 'card-title'))
+        cpu.append(c_head)
+
+        self.line_chart = charts.make_line_chart(width=180, height=120)
+        self.line_chart.set_values(self._line_values)
+        cpu.append(self.line_chart)
+
+        cores = os.cpu_count() or 1
+        self.cpu_now_label = txt(
+            i18n.t('cpu.now', pct='—',
+                   cores=i18n.tn('metric.cores', cores)), 'muted')
+        cpu.append(self.cpu_now_label)
+        row.append(cpu)
+        return row
+
+    # ---- Bloco 5: últimas ações ----
+    def _block_bottom(self):
         b = vbox(10)
         b.add_css_class('card')
-        b.set_hexpand(True)
 
         head = hbox(8)
         head.append(emoji('🕘'))
-        head.append(txt('Últimas Ações', 'card-title'))
+        head.append(txt(i18n.t('history.title'), 'card-title'))
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
         head.append(spacer)
-        self.history_btn = Gtk.Button(label='Ver Histórico →')
+        self.history_btn = Gtk.Button(label=i18n.t('history.view'))
         self.history_btn.add_css_class('link-btn')
         self.history_btn.connect('clicked', lambda *_: self._open_history())
         head.append(self.history_btn)
@@ -652,8 +573,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
         self.history_list = vbox(8)
         b.append(self.history_list)
-        row.append(b)
-        return row
+        return b
 
     # ---- status bar ----
     def _status_bar(self):
@@ -683,7 +603,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         if self._busy:
             return False
         self._set_busy(True)
-        self.status_text.set_text('Escaneando...')
+        self.status_text.set_text(i18n.t('status.scanning'))
         threading.Thread(target=self._scan_worker, daemon=True).start()
         return False
 
@@ -696,10 +616,10 @@ class CleanixWindow(Gtk.ApplicationWindow):
         GLib.idle_add(self._scan_done, results)
 
     def _scan_failed(self, message):
-        self.status_text.set_text('Não foi possível concluir a varredura')
+        self.status_text.set_text(i18n.t('status.scan_failed'))
         self._set_busy(False)
-        dialogs.show_info(self, 'Falha na varredura',
-                          f'Ocorreu um erro ao analisar o sistema:\n{message}')
+        dialogs.show_info(self, i18n.t('scan.failed.title'),
+                          i18n.t('scan.failed.body', detail=message))
         return False
 
     def _scan_done(self, results):
@@ -717,7 +637,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         finally:
             self._set_busy(False)
 
-        self.status_text.set_text('Pronto para ajudar seu sistema!')
+        self.status_text.set_text(i18n.t('status.ready'))
         return False
 
     def _refresh_system(self):
@@ -728,25 +648,28 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
         if self.scan_time is not None:
             self.last_check_label.set_text(
-                f'Última verificação: hoje às {self.scan_time:%H:%M}')
+                i18n.t('health.last_check',
+                       time=f'{self.scan_time:%H:%M}'))
 
         total = disk.total or 1
 
         value, pct = self.metric_labels['disk']
         value.set_text(systeminfo.format_bytes(disk.free))
-        pct.set_text(f'({free_pct:.0f}% livre)')
+        pct.set_text(i18n.t('metric.free_pct',
+                            pct=i18n.format_number(free_pct, 0)))
         self.metric_bars['disk'].set_fraction(disk.free / total)
 
         mem = systeminfo.get_mem_info()
         value, pct = self.metric_labels['mem']
         value.set_text(systeminfo.format_bytes(mem.used))
-        pct.set_text(f'({mem.percent_used:.0f}%)')
+        pct.set_text(i18n.t('metric.used_pct',
+                            pct=i18n.format_number(mem.percent_used, 0)))
         self.metric_bars['mem'].set_fraction(mem.percent_used / 100.0)
         self._refresh_memory_panel(mem)
 
         cores = os.cpu_count() or 1
         _, cpu_pct = self.metric_labels['cpu']
-        cpu_pct.set_text(f'({plural(cores, "núcleo", "núcleos")})')
+        cpu_pct.set_text(i18n.tn('metric.cores', cores))
 
         used_frac = disk.used / total
         free_frac = disk.free / total
@@ -755,28 +678,21 @@ class CleanixWindow(Gtk.ApplicationWindow):
             center_markup=(f"<span size='x-large' weight='bold'>"
                            f"{disk.percent_used:.0f}%</span>"))
         self.disk_used_label.set_text(
-            f'Usado   {systeminfo.format_bytes(disk.used)}')
+            i18n.t('disk.used', value=systeminfo.format_bytes(disk.used)))
         self.disk_free_label.set_text(
-            f'Livre   {systeminfo.format_bytes(disk.free)}')
+            i18n.t('disk.free', value=systeminfo.format_bytes(disk.free)))
         self.disk_total_label.set_text(
-            f'Total: {systeminfo.format_bytes(disk.total)}')
+            i18n.t('disk.total', value=systeminfo.format_bytes(disk.total)))
 
     def _set_health(self, state):
-        title, color, glyph, message, cls, strip = HEALTH_TEXTS[state]
+        title_key, color, glyph, message_key, cls = HEALTH_TEXTS[state]
         self.health_ring.set_state(state)
-        self.health_title.set_text(title)
+        self.health_title.set_text(i18n.t(title_key))
         self.health_icon.set_markup(f'<span foreground="{color}">{glyph}</span>')
-        self.health_text.set_text(message)
+        self.health_text.set_text(i18n.t(message_key))
         for name in ('ok-text', 'warn-text', 'bad-text'):
             self.health_text.remove_css_class(name)
         self.health_text.add_css_class(cls)
-
-        self.system_strip_icon.set_markup(
-            f'<span foreground="{color}">{glyph}</span>')
-        self.system_strip_text.set_text(strip)
-        for name in ('ok-text', 'warn-text', 'bad-text'):
-            self.system_strip_text.remove_css_class(name)
-        self.system_strip_text.add_css_class(cls)
 
     def _recoverable_total(self):
         cats = {c.key: c for c in self.categories}
@@ -792,10 +708,9 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
         self.recoverable_label.set_text(systeminfo.format_bytes(total))
         if total:
-            self.recoverable_sub.set_text('Arquivos desnecessários encontrados')
+            self.recoverable_sub.set_text(i18n.t('cleanup.found'))
         else:
-            self.recoverable_sub.set_text(
-                'Nenhum arquivo desnecessário encontrado')
+            self.recoverable_sub.set_text(i18n.t('cleanup.nothing_found'))
         self._refresh_cat_donut(total)
 
     def _refresh_cat_donut(self, total):
@@ -822,87 +737,64 @@ class CleanixWindow(Gtk.ApplicationWindow):
         self.cat_donut.set_segments(segments, center_markup=center)
 
     def _refresh_categories(self):
-        cats = {c.key: c for c in self.categories}
-        self._syncing = True
-        for key, (check, size_lbl) in self.cat_rows.items():
-            cat = cats[key]
+        for key, size_lbl in self.cat_rows.items():
             res = self.results.get(key)
             available = bool(res and res.available)
 
-            check.set_sensitive(available)
-            check.set_active(key in self.selected and available)
-
             if not available:
-                size_lbl.set_text('Indisponível')
+                size_lbl.set_text(i18n.t('cleanup.unavailable'))
             elif res.files == 0 and res.bytes == 0:
-                size_lbl.set_text('Vazio')
+                size_lbl.set_text(i18n.t('cleanup.empty'))
             else:
                 size_lbl.set_text(systeminfo.format_bytes(res.bytes))
-        self._syncing = False
-
-    def _on_cat_toggle(self, check, key):
-        if self._syncing:
-            return
-        if check.get_active():
-            self.selected.add(key)
-        else:
-            self.selected.discard(key)
-
-    def _sync_checks(self):
-        self._syncing = True
-        for key, (check, _size) in self.cat_rows.items():
-            if check.get_sensitive():
-                check.set_active(key in self.selected)
-        self._syncing = False
 
     # ---- limpeza ----
     def _start_clean(self, keys):
         keys = {key for key in keys if key in self.results}
         if not keys:
-            dialogs.show_info(self, 'Nada selecionado',
-                              'Selecione ao menos uma categoria para limpar.')
+            dialogs.show_info(self, i18n.t('clean.none.title'),
+                              i18n.t('clean.none.body'))
             return
         if self._busy:
             return
 
         total = sum(self.results[key].bytes for key in keys)
         if total == 0:
-            dialogs.show_info(self, 'Nada para limpar',
-                              'Nenhum arquivo foi encontrado nas categorias '
-                              'selecionadas.')
+            dialogs.show_info(self, i18n.t('clean.empty.title'),
+                              i18n.t('clean.empty.body'))
             return
 
         selected_cats = [cat for cat in self.categories if cat.key in keys]
         needs_home = any(not cat.requires_admin for cat in selected_cats)
         home = Path.home()
         if needs_home and not os.access(home, os.W_OK):
-            dialogs.show_info(self, 'Sem permissão',
-                              f'Não é possível gravar em {home}. '
-                              'A limpeza foi cancelada.')
+            dialogs.show_info(self, i18n.t('clean.no_permission.title'),
+                              i18n.t('clean.no_permission.body',
+                                     path=str(home)))
             return
 
-        message = (f'Serão removidos {systeminfo.format_bytes(total)} em '
-                   f'{plural(len(keys), "categoria", "categorias")}. '
-                   'Esta ação não pode ser desfeita.')
+        message = i18n.t(
+            'clean.confirm.body',
+            size=systeminfo.format_bytes(total),
+            count=len(keys),
+            categories=i18n.tn('clean.categories', len(keys)))
         if 'browsers' in keys:
-            message += ('\n\nFeche os navegadores para liberar mais espaço; '
-                        'abertos, eles podem recriar o cache.')
+            message += '\n\n' + i18n.t('clean.confirm.browsers')
         if any(cat.requires_admin for cat in selected_cats):
-            message += ('\n\nSerá pedida a senha de administrador para '
-                        'limpar o cache do APT.')
+            message += '\n\n' + i18n.t('clean.confirm.admin')
 
         def do_clean():
             self._run_clean(keys)
 
         if settings.load_settings().confirm_before_clean:
-            dialogs.confirm(self, 'Confirmar limpeza', message, 'Limpar',
-                            do_clean)
+            dialogs.confirm(self, i18n.t('clean.confirm.title'), message,
+                            i18n.t('clean.confirm.action'), do_clean)
         else:
             do_clean()
 
     def _run_clean(self, keys):
         self._set_busy(True)
-        self.status_text.set_text('Limpando...')
+        self.status_text.set_text(i18n.t('status.cleaning'))
         threading.Thread(target=self._clean_worker, args=(set(keys),),
                          daemon=True).start()
 
@@ -933,32 +825,33 @@ class CleanixWindow(Gtk.ApplicationWindow):
         GLib.idle_add(self._clean_done, report, history_error, errors)
 
     def _clean_failed(self, message):
-        self.status_text.set_text('A limpeza não pôde ser concluída')
+        self.status_text.set_text(i18n.t('status.clean_failed'))
         self._set_busy(False)
-        dialogs.show_info(self, 'Falha na limpeza',
-                          f'Ocorreu um erro durante a limpeza:\n{message}')
+        dialogs.show_info(self, i18n.t('clean.failed.title'),
+                          i18n.t('clean.failed.body', detail=message))
         return False
 
     def _clean_done(self, report, history_error, errors=()):
-        message = (f'{systeminfo.format_bytes(report.bytes)} liberados, '
-                   f'{plural(report.files, "arquivo removido", "arquivos removidos")}.')
+        message = i18n.tn('clean.done.files', report.files,
+                          size=systeminfo.format_bytes(report.bytes))
         if report.errors == 1:
-            message += '\n1 item não pôde ser removido.'
+            message += '\n' + i18n.t('clean.done.errors.one')
         elif report.errors > 1:
-            message += f'\n{report.errors} itens não puderam ser removidos.'
+            message += '\n' + i18n.t('clean.done.errors.other',
+                                     n=report.errors)
         for error in errors:
             message += f'\n\n{error}'
         if history_error:
-            message += (f'\n\nAviso: não foi possível salvar o histórico '
-                        f'({history_error}).')
+            message += '\n\n' + i18n.t('clean.done.history_error',
+                                       detail=history_error)
 
         # Feedback imediato enquanto a nova varredura roda em segundo plano.
         remaining = max(0, self._recoverable_total() - report.bytes)
         self.recoverable_label.set_text(systeminfo.format_bytes(remaining))
-        self.recoverable_sub.set_text('Atualizando após a limpeza...')
+        self.recoverable_sub.set_text(i18n.t('cleanup.updating'))
 
-        dialogs.show_info(self, 'Limpeza concluída', message)
-        self.status_text.set_text('Pronto para ajudar seu sistema!')
+        dialogs.show_info(self, i18n.t('clean.done.title'), message)
+        self.status_text.set_text(i18n.t('status.ready'))
         self._set_busy(False)
         self._refresh_history()
         self._start_scan()
@@ -966,10 +859,9 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
     def _set_busy(self, busy):
         self._busy = busy
-        for btn in self.action_buttons:
+        for btn in (self.cleanup_review_btn, self.memory_release_btn,
+                    self.history_btn):
             btn.set_sensitive(not busy)
-        self.details_btn.set_sensitive(not busy)
-        self.history_btn.set_sensitive(not busy)
 
     # ---- CPU ----
     def _tick_cpu(self):
@@ -978,6 +870,11 @@ class CleanixWindow(Gtk.ApplicationWindow):
         value, _pct = self.metric_labels['cpu']
         value.set_text(systeminfo.format_percent(percent))
         self.metric_bars['cpu'].set_fraction(percent / 100.0)
+
+        cores = os.cpu_count() or 1
+        self.cpu_now_label.set_text(
+            i18n.t('cpu.now', pct=i18n.format_number(percent, 0),
+                   cores=i18n.tn('metric.cores', cores)))
 
         self._line_values.append(percent / 100.0)
         self._line_values = self._line_values[-30:]
@@ -992,12 +889,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
             return
         dialog = dialogs.DetailsDialog(self, self.categories, self.results,
                                        self.selected, self._start_clean)
-        dialog.connect('close-request', self._on_details_closed)
         dialog.present()
-
-    def _on_details_closed(self, _dialog):
-        self._sync_checks()
-        return False
 
     def _open_history(self):
         dialog = dialogs.HistoryDialog(self, history.load_history(),
@@ -1021,7 +913,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         recent = entries[-3:][::-1]
         if not recent:
             self.history_list.append(
-                txt('Nenhuma limpeza registrada ainda', 'empty-text'))
+                txt(i18n.t('history.empty'), 'empty-text'))
             return
 
         for entry in recent:
@@ -1030,11 +922,12 @@ class CleanixWindow(Gtk.ApplicationWindow):
 
             info = vbox(1)
             info.set_hexpand(True)
-            info.append(txt('Limpeza realizada', 'op-title'))
-            info.append(txt(f'Espaço liberado: '
-                            f'{systeminfo.format_bytes(entry.bytes)} · '
-                            f'{plural(entry.files, "arquivo", "arquivos")}',
-                            'op-sub'))
+            info.append(txt(i18n.t('history.entry'), 'op-title'))
+            info.append(txt(
+                i18n.t('history.entry_sub',
+                       size=systeminfo.format_bytes(entry.bytes),
+                       files=i18n.tn('history.files', entry.files)),
+                'op-sub'))
             r.append(info)
 
             r.append(txt(history.format_timestamp(entry.timestamp), 'op-date'))
