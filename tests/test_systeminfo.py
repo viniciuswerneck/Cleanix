@@ -150,3 +150,72 @@ class PhysicalDisksForSmartTest(unittest.TestCase):
         ]
         out = si.physical_disks_for_smart(disks)
         self.assertEqual([d['name'] for d in out], ['sda'])
+
+
+class SensorReadTest(unittest.TestCase):
+    def test_read_thermal_temps(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            z0 = base / 'thermal_zone0'
+            z0.mkdir()
+            (z0 / 'type').write_text('x86_pkg_temp\n')
+            (z0 / 'temp').write_text('49000\n')
+            z1 = base / 'thermal_zone1'
+            z1.mkdir()
+            (z1 / 'temp').write_text('not-a-number\n')
+            temps = si.read_thermal_temps(d)
+        self.assertEqual(len(temps), 1)
+        self.assertEqual(temps[0]['type'], 'x86_pkg_temp')
+        self.assertEqual(temps[0]['temp_c'], 49.0)
+
+    def test_read_hwmon_temps(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            h = base / 'hwmon3'
+            h.mkdir()
+            (h / 'name').write_text('coretemp\n')
+            (h / 'temp1_input').write_text('49000\n')
+            (h / 'temp1_label').write_text('Package id 0\n')
+            (h / 'temp2_input').write_text('47000\n')
+            temps = si.read_hwmon_temps(d)
+        labels = {x['label'] for x in temps}
+        self.assertIn('Package id 0', labels)
+        self.assertTrue(any(x['name'] == 'coretemp' for x in temps))
+
+    def test_collect_sensors_empty_when_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = si.collect_sensors(thermal_path=d + '/t', hwmon_path=d + '/h')
+        self.assertEqual(data.get('readings'), [])
+        self.assertEqual(data.get('summary'), '')
+
+
+class PowerSupplyReadTest(unittest.TestCase):
+    def test_read_power_supply_battery(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            bat = base / 'BAT1'
+            bat.mkdir()
+            (bat / 'type').write_text('Battery\n')
+            (bat / 'status').write_text('Discharging\n')
+            (bat / 'capacity').write_text('80\n')
+            (bat / 'energy_full').write_text('1537000\n')
+            (bat / 'energy_full_design').write_text('2500000\n')
+            (bat / 'cycle_count').write_text('120\n')
+            ac = base / 'ACAD'
+            ac.mkdir()
+            (ac / 'type').write_text('Mains\n')
+            (ac / 'online').write_text('0\n')
+            info = si.read_power_supply(d)
+        self.assertTrue(info.get('present'))
+        self.assertEqual(info.get('status'), 'Discharging')
+        self.assertEqual(info.get('capacity'), 80)
+        self.assertEqual(info.get('cycle_count'), 120)
+        self.assertAlmostEqual(info.get('health_pct'), 61.48, places=1)
+        self.assertFalse(info.get('ac_online'))
+        self.assertIn('80%', info.get('summary', ''))
+
+    def test_read_power_supply_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            info = si.read_power_supply(d)
+        self.assertFalse(info.get('present'))
+        self.assertEqual(info.get('summary', ''), '')

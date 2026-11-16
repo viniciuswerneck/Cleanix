@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+from pathlib import Path
 from dataclasses import dataclass
 
 from . import i18n
@@ -370,3 +371,152 @@ def parse_smartctl(text: str) -> dict:
         'notes': [],
     }
 
+
+def _read_sys_text(path):
+    try:
+        return Path(path).read_text(encoding='utf-8', errors='replace').strip()
+    except OSError:
+        return ''
+
+
+def read_thermal_temps(base_path='/sys/class/thermal'):
+    base = Path(base_path)
+    temps = []
+    try:
+        zones = sorted(base.glob('thermal_zone*'))
+    except OSError:
+        return temps
+    for zone in zones:
+        raw = _read_sys_text(zone / 'temp')
+        try:
+            temp_c = float(raw) / 1000.0
+        except (TypeError, ValueError):
+            continue
+        if temp_c <= 0 or temp_c > 150:
+            continue
+        zone_type = _read_sys_text(zone / 'type') or zone.name
+        temps.append({'type': zone_type, 'temp_c': round(temp_c, 1)})
+    return temps
+
+
+def read_hwmon_temps(base_path='/sys/class/hwmon'):
+    base = Path(base_path)
+    temps = []
+    try:
+        hwmons = sorted(base.glob('hwmon*'))
+    except OSError:
+        return temps
+    for hw in hwmons:
+        name = _read_sys_text(hw / 'name') or hw.name
+        try:
+            inputs = sorted(hw.glob('temp*_input'))
+        except OSError:
+            continue
+        for inp in inputs:
+            raw = _read_sys_text(inp)
+            try:
+                temp_c = float(raw) / 1000.0
+            except (TypeError, ValueError):
+                continue
+            if temp_c <= 0 or temp_c > 150:
+                continue
+            label_path = Path(str(inp).replace('_input', '_label'))
+            label = _read_sys_text(label_path) or inp.name.replace('_input', '')
+            temps.append({'name': name, 'label': label, 'temp_c': round(temp_c, 1)})
+    return temps
+
+
+def collect_sensors(thermal_path='/sys/class/thermal', hwmon_path='/sys/class/hwmon'):
+    readings = []
+    # prefer hwmon labels, but include thermal zones not obviously duplicated
+    for item in read_hwmon_temps(hwmon_path):
+        readings.append({
+            'source': 'hwmon',
+            'name': item.get('name', ''),
+            'label': item.get('label', ''),
+            'temp_c': item.get('temp_c'),
+        })
+    for item in read_thermal_temps(thermal_path):
+        readings.append({
+            'source': 'thermal',
+            'name': item.get('type', ''),
+            'label': item.get('type', ''),
+            'temp_c': item.get('temp_c'),
+        })
+    # summary: hottest reading
+    summary = ''
+    if readings:
+        hottest = max(readings, key=lambda r: r.get('temp_c') or 0)
+        label = hottest.get('label') or hottest.get('name') or ''
+        temp = hottest.get('temp_c')
+        if temp is not None:
+            summary = f"{label}: {temp:.0f} °C" if label else f"{temp:.0f} °C"
+    return {'summary': summary, 'readings': readings}
+
+
+def _read_power_value(base, names):
+    for name in names:
+        val = _read_sys_text(base / name)
+        if val:
+            return val
+    return ''
+
+
+def read_power_supply(base_path='/sys/class/power_supply'):
+    base = Path(base_path)
+    try:
+        entries = sorted(base.iterdir())
+    except OSError:
+        return {'present': False, 'summary': ''}
+    ac_online = None
+    battery = None
+    for entry in entries:
+        kind = _read_sys_text(entry / 'type').lower()
+        if kind == 'mains':
+            val = _read_sys_text(entry / 'online')
+            if val in ('1', '0'):
+                ac_online = val == '1'
+        elif kind == 'battery' and battery is None:
+            battery = entry
+    if battery is None:
+        return {'present': False, 'summary': '', 'ac_online': ac_online}
+    status = _read_sys_text(battery / 'status')
+    cap_raw = _read_sys_text(battery / 'capacity')
+    try:
+        capacity = int(float(cap_raw))
+    except (TypeError, ValueError):
+        capacity = None
+    cyc_raw = _read_sys_text(battery / 'cycle_count')
+    try:
+        cycle_count = int(float(cyc_raw))
+    except (TypeError, ValueError):
+        cycle_count = None
+    full_raw = _read_power_value(battery, ('energy_full', 'charge_full'))
+    design_raw = _read_power_value(battery, ('energy_full_design', 'charge_full_design'))
+    health_pct = None
+    try:
+        full = float(full_raw)
+        design = float(design_raw)
+        if design > 0 and full > 0:
+            health_pct = round((full / design) * 100.0, 1)
+    except (TypeError, ValueError, ZeroDivisionError):
+        health_pct = None
+    parts = []
+    if capacity is not None:
+        parts.append(f"{capacity}%")
+    if status:
+        parts.append(status)
+    if health_pct is not None:
+        parts.append(f"health {health_pct:.0f}%")
+    if cycle_count is not None:
+        parts.append(f"{cycle_count} cycles")
+    summary = ', '.join(parts)
+    return {
+        'present': True,
+        'status': status,
+        'capacity': capacity,
+        'health_pct': health_pct,
+        'cycle_count': cycle_count,
+        'ac_online': ac_online,
+        'summary': summary,
+    }
