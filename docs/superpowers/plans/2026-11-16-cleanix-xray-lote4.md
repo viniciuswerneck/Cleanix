@@ -1,6 +1,6 @@
 # Raio-X lote 4 — snapshots e comparação
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (native) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (native) to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Salvar snapshots do Raio-X e comparar dois estados para mostrar mudanças em programas, discos, sistema, BIOS/hardware e alertas.
 
@@ -33,10 +33,10 @@
 - `xray.build_report_data(...) -> dict` (mesmos args de json), `build_report_json` usa-o.
 - `snapshots.snapshots_dir()`, `save_snapshot(data, directory=None) -> Path`, `list_snapshots(directory=None) -> list[dict]`, `load_snapshot(path) -> dict`.
 
-- [ ] **Step 1:** testes para `build_report_data` (redação/meta) e para save/list/load com tempdir e limite.
-- [ ] **Step 2:** implementar refactor + módulo.
-- [ ] **Step 3:** testes passam.
-- [ ] **Step 4:** commit.
+- [x] **Step 1:** testes para `build_report_data` (redação/meta) e para save/list/load com tempdir e limite.
+- [x] **Step 2:** implementar refactor + módulo.
+- [x] **Step 3:** testes passam.
+- [x] **Step 4:** commit.
 
 ### Task 2: `compare_snapshots`
 
@@ -47,10 +47,10 @@
 **Interfaces:**
 - `compare_snapshots(old, new) -> dict` com seções `programs`, `disks`, `system`, `bios`, `hardware`, `alerts`, `summary`.
 
-- [ ] **Step 1:** testes para programas add/remove/change, discos, updates, alertas, tolerância a ausentes.
-- [ ] **Step 2:** implementar.
-- [ ] **Step 3:** testes passam.
-- [ ] **Step 4:** commit.
+- [x] **Step 1:** testes para programas add/remove/change, discos, updates, alertas, tolerância a ausentes.
+- [x] **Step 2:** implementar.
+- [x] **Step 3:** testes passam.
+- [x] **Step 4:** commit.
 
 ### Task 3: UI no Raio-X (salvar e comparar)
 
@@ -59,11 +59,11 @@
 - Modify: `cleanix/locale/{pt_BR,en,es}.json`
 - Modify: `README.md`
 
-- [ ] **Step 1:** adicionar chaves i18n e botões “Salvar snapshot”/“Comparar…” no `XRayDialog`.
-- [ ] **Step 2:** implementar salvar (usa dados atuais + redação) e diálogo de comparação (lista snapshots, escolhe base/alvo, mostra diff textual).
-- [ ] **Step 3:** verificação `unittest`, `check_language`, `check_layout`.
-- [ ] **Step 4:** commit.
+- [x] **Step 1:** adicionar chaves i18n e botões “Salvar snapshot”/“Comparar…” no `XRayDialog`.
+- [x] **Step 2:** implementar salvar (usa dados atuais + redação) e diálogo de comparação (lista snapshots, escolhe base/alvo, mostra diff textual).
+- [x] **Step 3:** verificação `unittest`, `check_language`, `check_layout`.
+- [x] **Step 4:** commit.
 
 ### Task 4: Fechamento
 
-- [ ] Marcar plano, atualizar ledger, commit docs e `git push`.
+- [x] Marcar plano, atualizar ledger, commit docs e `git push`.
