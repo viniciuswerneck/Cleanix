@@ -154,6 +154,8 @@
   "settings.confirm.title": "Confirmar antes de limpiar",
   "settings.history.desc": "Registra lo que se eliminó en la tarjeta \"Últimas Acciones\" y en el diálogo de historial.",
   "settings.history.title": "Guardar historial de limpiezas",
+  "settings.language.desc": "Cambia el idioma al momento, sin reiniciar Cleanix.",
+  "settings.language.title": "Idioma de la interfaz",
   "settings.save_error.body": "Detalle: {detail}",
   "settings.save_error.title": "No se pudo guardar",
   "settings.save_failed": "Las preferencias no se guardaron.",

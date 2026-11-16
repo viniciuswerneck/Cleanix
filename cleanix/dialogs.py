@@ -733,7 +733,7 @@ class AdjustmentsDialog(Gtk.Window):
 class SettingsDialog(Gtk.Window):
     """Preferências do Cleanix, salvas assim que mudam."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, on_language_changed=None):
         super().__init__()
         self.set_title(i18n.t('settings.title'))
         self.set_modal(True)
@@ -742,7 +742,8 @@ class SettingsDialog(Gtk.Window):
         self.add_css_class('dialog')
 
         self._settings = settings.load_settings()
-        self._recording = False
+        self._on_language_changed = on_language_changed
+        self._recording = True
 
         root = _vbox(10)
         root.set_margin_top(18)
@@ -752,6 +753,17 @@ class SettingsDialog(Gtk.Window):
 
         root.append(_txt(i18n.t('settings.title'), 'dialog-title'))
         root.append(_txt(i18n.t('settings.subtitle'), 'muted', wrap=True))
+
+        self._language_dropdown = Gtk.DropDown.new_from_strings(
+            [i18n.LANGUAGE_NAMES[code] for code in i18n.LANGUAGES])
+        self._language_dropdown.set_selected(
+            i18n.LANGUAGES.index(i18n.get_language()))
+        self._language_dropdown.set_valign(Gtk.Align.CENTER)
+        self._language_dropdown.connect('notify::selected',
+                                        self._on_language)
+        root.append(self._row(
+            i18n.t('settings.language.title'),
+            i18n.t('settings.language.desc'), self._language_dropdown))
 
         self._confirm_switch = Gtk.Switch()
         self._confirm_switch.set_active(
@@ -784,8 +796,9 @@ class SettingsDialog(Gtk.Window):
         root.append(close)
 
         self.set_child(root)
+        self._recording = False
 
-    def _row(self, title, description, switch):
+    def _row(self, title, description, control):
         row = _hbox(12)
         row.add_css_class('dialog-row')
 
@@ -794,7 +807,7 @@ class SettingsDialog(Gtk.Window):
         info.append(_txt(title, 'cat-name'))
         info.append(_txt(description, 'muted', wrap=True))
         row.append(info)
-        row.append(switch)
+        row.append(control)
         return row
 
     def _on_toggle(self, _switch, _pspec):
@@ -803,6 +816,7 @@ class SettingsDialog(Gtk.Window):
         self._settings = settings.Settings(
             confirm_before_clean=self._confirm_switch.get_active(),
             keep_history=self._history_switch.get_active(),
+            language=self._settings.language,
         )
         try:
             settings.save_settings(self._settings)
@@ -813,6 +827,39 @@ class SettingsDialog(Gtk.Window):
             self.status.set_text(i18n.t('settings.save_failed'))
             return
         self.status.set_text(i18n.t('settings.saved'))
+
+    def _on_language(self, dropdown, _pspec):
+        if self._recording:
+            return
+        index = dropdown.get_selected()
+        if index < 0 or index >= len(i18n.LANGUAGES):
+            return
+        code = i18n.LANGUAGES[index]
+        if code == i18n.get_language():
+            return
+
+        new_settings = settings.Settings(
+            confirm_before_clean=self._confirm_switch.get_active(),
+            keep_history=self._history_switch.get_active(),
+            language=code,
+        )
+        try:
+            settings.save_settings(new_settings)
+        except OSError as exc:
+            log.exception('Falha ao salvar o idioma')
+            show_info(self, i18n.t('settings.save_error.title'),
+                      i18n.t('settings.save_error.body', detail=exc))
+            self.status.set_text(i18n.t('settings.save_failed'))
+            self._recording = True
+            dropdown.set_selected(
+                i18n.LANGUAGES.index(i18n.get_language()))
+            self._recording = False
+            return
+
+        self._settings = new_settings
+        if self._on_language_changed is not None:
+            self._on_language_changed(code)
+        self.close()
 
 
 class HistoryDialog(Gtk.Window):

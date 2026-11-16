@@ -154,6 +154,8 @@
   "settings.confirm.title": "Confirm before cleaning",
   "settings.history.desc": "Records what was removed in the \"Recent Actions\" card and in the history dialog.",
   "settings.history.title": "Keep cleanup history",
+  "settings.language.desc": "Changes the language right away, without restarting Cleanix.",
+  "settings.language.title": "Interface language",
   "settings.save_error.body": "Detail: {detail}",
   "settings.save_error.title": "Could not save",
   "settings.save_failed": "The preferences were not saved.",

@@ -21,6 +21,7 @@ import cairo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from cleanix import i18n  # noqa: E402
 from cleanix.cleanixwindow import CleanixWindow  # noqa: E402
 
 
@@ -58,7 +59,12 @@ def main():
                         help='arquivo PNG de saída')
     parser.add_argument('--scroll', choices=('top', 'bottom'), default='top',
                         help='posição do conteúdo rolável')
+    parser.add_argument('--language', choices=i18n.LANGUAGES, default=None,
+                        help='idioma da captura')
     args = parser.parse_args()
+
+    if args.language:
+        i18n.set_language(args.language)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

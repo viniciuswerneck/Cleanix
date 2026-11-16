@@ -408,7 +408,7 @@ class CleanixWindow(Gtk.ApplicationWindow):
         chart_box.set_valign(Gtk.Align.CENTER)
         self.memory_chart = charts.make_line_chart(
             width=320, height=96, color='#3295F5')
-        self.memory_chart.set_values([])
+        self.memory_chart.set_values(self._memory_values)
         chart_box.append(self.memory_chart)
         body.append(chart_box)
 
@@ -943,8 +943,29 @@ class CleanixWindow(Gtk.ApplicationWindow):
         dialog.present()
 
     def _show_settings(self):
-        dialog = dialogs.SettingsDialog(self)
+        dialog = dialogs.SettingsDialog(
+            self, on_language_changed=self._apply_language)
         dialog.present()
+
+    def _apply_language(self, code):
+        """Troca o idioma e reconstrói a interface sem reiniciar o app."""
+        if code not in i18n.LANGUAGES:
+            return
+        if not i18n.set_language(code):
+            return
+
+        self.cat_rows = {}
+        self.metric_labels = {}
+        self.metric_bars = {}
+        self.history_rows = []
+
+        self._build_ui()
+
+        if self.results:
+            self._refresh_system()
+            self._refresh_recoverable()
+            self._refresh_categories()
+        self._refresh_history()
 
     def _show_help_about(self):
         title, body = dialogs.help_about_text()
