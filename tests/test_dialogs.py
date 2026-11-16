@@ -69,20 +69,14 @@ class ActionListsTest(unittest.TestCase):
                          'Limpar logs antigos')
         self.assertEqual(i18n.t('optimizer.fstrim.label'), 'Otimizar SSD')
 
-    def test_adjustments_never_need_root(self):
-        for action in dialogs.ADJUSTMENT_ACTIONS:
-            self.assertFalse(action['as_root'])
-            self.assertNotIn('sudo', action['command'])
-
     def test_actions_have_all_fields(self):
-        for action in (dialogs.OPTIMIZER_ACTIONS + dialogs.ADJUSTMENT_ACTIONS):
+        for action in dialogs.OPTIMIZER_ACTIONS:
             for field in ('label_key', 'description_key', 'detail_key',
                           'command', 'as_root'):
                 self.assertIn(field, action)
 
     def test_action_keys_exist_in_every_catalog(self):
         actions = list(dialogs.OPTIMIZER_ACTIONS
-                       + dialogs.ADJUSTMENT_ACTIONS
                        + tuple(dialogs.OptimizerDialog.actions))
         keys = set()
         for action in actions:

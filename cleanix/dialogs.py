@@ -11,7 +11,8 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gdk, GLib, Gtk, Pango
 
-from . import autostart, history, i18n, memory, settings, systeminfo
+from . import (adjustments, autostart, history, i18n, memory, settings,
+               systeminfo)
 from .execution import Result, execute_command
 
 log = logging.getLogger(__name__)
@@ -354,36 +355,6 @@ OPTIMIZER_ACTIONS = (
 )
 
 
-ADJUSTMENT_ACTIONS = (
-    {
-        'label_key': 'adjust.desktop.label',
-        'description_key': 'adjust.desktop.description',
-        'detail_key': 'adjust.desktop.detail',
-        'command': 'gsettings set org.gnome.desktop.interface '
-                   'enable-animations true',
-        'as_root': False,
-    },
-    {
-        'label_key': 'adjust.privacy.label',
-        'description_key': 'adjust.privacy.description',
-        'detail_key': 'adjust.privacy.detail',
-        'command': 'gsettings set org.gnome.desktop.privacy '
-                   'remove-old-trash-files true && '
-                   'gsettings set org.gnome.desktop.privacy '
-                   'remove-old-temp-files true',
-        'as_root': False,
-    },
-    {
-        'label_key': 'adjust.performance.label',
-        'description_key': 'adjust.performance.description',
-        'detail_key': 'adjust.performance.detail',
-        'command': 'gsettings set org.gnome.desktop.interface '
-                   'enable-animations false',
-        'as_root': False,
-    },
-)
-
-
 class StartupAppsDialog(Gtk.Window):
     """Ativa e desativa os aplicativos que iniciam junto com o sistema."""
 
@@ -662,12 +633,101 @@ class OptimizerDialog(_ActionDialog):
     )
 
 
-class AdjustmentsDialog(_ActionDialog):
-    """Ajustes do sistema, aplicados com gsettings (sem root)."""
+class AdjustmentsDialog(Gtk.Window):
+    """Ajustes do sistema com switches reais (gsettings, sem root)."""
 
-    heading_key = 'adjust.title'
-    subtitle_key = 'adjust.subtitle'
-    actions = ADJUSTMENT_ACTIONS
+    def __init__(self, parent):
+        super().__init__()
+        self.set_title(i18n.t('adjust.title'))
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        self.set_default_size(560, -1)
+        self.add_css_class('dialog')
+
+        self._restoring = True
+
+        root = _vbox(10)
+        root.set_margin_top(18)
+        root.set_margin_bottom(18)
+        root.set_margin_start(18)
+        root.set_margin_end(18)
+
+        root.append(_txt(i18n.t('adjust.title'), 'dialog-title'))
+        root.append(_txt(i18n.t('adjust.subtitle'), 'muted', wrap=True))
+
+        animations = adjustments.get_animations()
+        privacy = adjustments.get_privacy_cleanup()
+
+        self._animations_switch = self._make_switch(animations)
+        self._animations_switch.connect('notify::active',
+                                        self._on_animations)
+        root.append(self._row(i18n.t('adjust.animations.title'),
+                              i18n.t('adjust.animations.desc'),
+                              self._animations_switch))
+
+        self._privacy_switch = self._make_switch(privacy)
+        self._privacy_switch.connect('notify::active', self._on_privacy)
+        root.append(self._row(i18n.t('adjust.privacy.title'),
+                              i18n.t('adjust.privacy.desc'),
+                              self._privacy_switch))
+
+        self.status = _txt('', 'muted', wrap=True)
+        if animations is None and privacy is None:
+            self.status.set_text(i18n.t('adjust.unavailable'))
+        root.append(self.status)
+
+        separator = Gtk.Separator()
+        separator.set_margin_top(4)
+        separator.set_margin_bottom(4)
+        root.append(separator)
+
+        close = Gtk.Button(label=i18n.t('common.close'))
+        close.add_css_class('btn-secondary')
+        close.connect('clicked', lambda *_: self.close())
+        root.append(close)
+
+        self.set_child(root)
+        self._restoring = False
+
+    @staticmethod
+    def _make_switch(state):
+        switch = Gtk.Switch()
+        switch.set_active(bool(state))
+        switch.set_valign(Gtk.Align.CENTER)
+        switch.set_sensitive(state is not None)
+        return switch
+
+    def _row(self, title, description, switch):
+        row = _hbox(12)
+        row.add_css_class('dialog-row')
+
+        info = _vbox(1)
+        info.set_hexpand(True)
+        info.append(_txt(title, 'cat-name'))
+        info.append(_txt(description, 'muted', wrap=True))
+        row.append(info)
+        row.append(switch)
+        return row
+
+    def _apply(self, switch, enabled, setter):
+        if self._restoring:
+            return
+        result = setter(enabled)
+        if result.ok:
+            self.status.set_text(i18n.t('adjust.saved'))
+            return
+        self._restoring = True
+        switch.set_active(not enabled)
+        self._restoring = False
+        self.status.set_text(
+            i18n.t('adjust.error', detail=result.error))
+
+    def _on_animations(self, switch, _pspec):
+        self._apply(switch, switch.get_active(), adjustments.set_animations)
+
+    def _on_privacy(self, switch, _pspec):
+        self._apply(switch, switch.get_active(),
+                    adjustments.set_privacy_cleanup)
 
 
 class SettingsDialog(Gtk.Window):

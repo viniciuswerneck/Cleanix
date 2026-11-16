@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import systeminfo
+from . import i18n, systeminfo
 from .execution import Result, execute_command
 
 MEMINFO_PATH = Path('/proc/meminfo')
@@ -53,8 +53,7 @@ def release_memory() -> Result:
     """Descarta o cache da RAM e devolve quantos bytes foram liberados."""
     before = read_meminfo()
     if not before or 'MemAvailable' not in before:
-        return Result(False, '',
-                      'Não foi possível ler os dados de memória do sistema.')
+        return Result(False, '', i18n.t('memory.read_failed'))
 
     result = execute_command(DROP_CACHES_COMMAND, as_root=True)
     if not result.ok:
@@ -66,7 +65,8 @@ def release_memory() -> Result:
     freed = max(0, after_available - before_available)
 
     if freed:
-        output = f'{systeminfo.format_bytes(freed)} de memória foram liberados.'
+        output = i18n.t('memory.freed',
+                        size=systeminfo.format_bytes(freed))
     else:
-        output = 'Nenhuma memória precisou ser liberada.'
+        output = i18n.t('memory.nothing_freed')
     return Result(True, output, '')

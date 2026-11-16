@@ -8,6 +8,8 @@ import os
 import subprocess
 from collections import namedtuple
 
+from . import i18n
+
 log = logging.getLogger(__name__)
 
 # PATH usado quando o comando roda via pkexec (root não herda o ambiente).
@@ -22,10 +24,9 @@ def friendly_error(text):
     if not text:
         return ''
     if 'Not authorized' in text or 'dismissed' in text.lower():
-        return ('A senha de administrador não foi informada.\n'
-                'Nada foi alterado no sistema.')
+        return i18n.t('error.admin_required')
     if 'No such file or directory' in text and 'bash' in text:
-        return 'Não foi possível iniciar o shell do sistema.'
+        return i18n.t('error.shell_start')
     return text
 
 
@@ -58,15 +59,15 @@ def execute_command(command, as_root=False, timeout=COMMAND_TIMEOUT):
         )
     except FileNotFoundError as exc:
         log.error('Programa não encontrado ao executar %r: %s', command, exc)
-        return Result(False, '', f'Programa não encontrado: {exc}')
+        return Result(False, '',
+                      i18n.t('error.program_missing', detail=exc))
     except subprocess.TimeoutExpired:
         log.error('Tempo esgotado ao executar %r', command)
         return Result(False, '',
-                      f'O comando demorou mais de {timeout} segundos '
-                      'e foi cancelado.')
+                      i18n.t('error.timeout', seconds=timeout))
     except Exception as exc:  # noqa: BLE001 - o erro precisa chegar ao usuário
         log.exception('Falha inesperada ao executar %r', command)
-        return Result(False, '', f'Falha inesperada: {exc}')
+        return Result(False, '', i18n.t('error.unexpected', detail=exc))
 
     ok = proc.returncode == 0
     output = (proc.stdout or '').strip()
@@ -77,7 +78,7 @@ def execute_command(command, as_root=False, timeout=COMMAND_TIMEOUT):
     else:
         log.warning('Falhou (código %s): %s -> %s',
                     proc.returncode, command, error)
-        error = friendly_error(error) or (
-            f'O comando terminou com código {proc.returncode}.')
+        error = friendly_error(error) or i18n.t(
+            'error.exit_code', code=proc.returncode)
 
     return Result(ok, output, error)

@@ -60,7 +60,8 @@ def format_percent(value: float, decimals: int = 0) -> str:
 def _read_os_release(path: str) -> dict[str, str]:
     values: dict[str, str] = {}
     try:
-        text = open(path, encoding='utf-8', errors='replace').read()
+        with open(path, encoding='utf-8', errors='replace') as handle:
+            text = handle.read()
     except OSError:
         return values
     for line in text.splitlines():

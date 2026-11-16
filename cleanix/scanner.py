@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from . import i18n
 from .execution import execute_command
 
 BROWSER_CACHE_DIRS = (
@@ -148,7 +149,7 @@ def _clean_admin_files(cat: Category) -> ScanResult:
     if not result.ok:
         return ScanResult(
             key=cat.key, available=True, errors=errors + 1,
-            error=result.error or 'O comando administrativo não foi concluído.',
+            error=result.error or i18n.t('scan.admin_incomplete'),
         )
 
     return ScanResult(
